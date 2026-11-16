@@ -1,0 +1,2010 @@
+<!DOCTYPE html>
+<!--
+================================================================================
+ ABNORMAL STORAGE MONITORING DASHBOARD
+ Emergency Storage Capacity Management System (ESCMS)
+ --------------------------------------------------------------------------------
+ File     : abnormal_storage_dashboard.html
+ Version  : 1.4 (VS Code edition: logo loaded from SCGP_Primary_Logo-01.png)
+ Folder   : keep SCGP_Primary_Logo-01.png in the same folder as this file
+ Run      : VS Code > Live Server > Open with Live Server
+ Libraries: Chart.js (trends), html2canvas (PNG export) - loaded from CDN
+ Storage  : Cloudflare Worker + KV (shared, see src/worker.js, wrangler.jsonc
+            and DEPLOY_CLOUDFLARE.md). Falls back to browser localStorage when
+            opened locally (file:// or Live Server) or when /api is unreachable.
+================================================================================
+-->
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#081b29">
+<meta name="google" content="notranslate">
+<title>Abnormal Storage Monitoring Dashboard - ESCMS</title>
+
+<!-- External libraries (only these two are used) -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+
+<style>
+/* ==========================================================================
+   1. THEME VARIABLES  (Dark = default control-room theme, Light = optional)
+   ========================================================================== */
+:root{
+  --bg:#081b29;
+  --card:#112d4e;
+  --card-2:#0e2540;
+  --accent:#00c6ff;
+  --text:#e6f1fb;
+  --muted:#8fb0cc;
+  --border:#1f4a7a;
+  --track:#1b3a5c;
+  --input-bg:#0a2038;
+  --header-bg:linear-gradient(90deg,#0b2a47 0%,#112d4e 60%,#0e3a62 100%);
+  --shadow:0 6px 18px rgba(0,0,0,.35);
+  --good:#22c55e;
+  --mid:#eab308;
+  --warn:#ff9f1c;
+  --crit:#ef4444;
+  --pipe:#2a8bc9;
+  --grid-line:rgba(0,198,255,.06);
+}
+[data-theme="light"]{
+  --bg:#eaf1f8;
+  --card:#ffffff;
+  --card-2:#f3f7fb;
+  --accent:#0079b8;
+  --text:#0b2239;
+  --muted:#52708a;
+  --border:#c5d6e6;
+  --track:#dbe6f0;
+  --input-bg:#f7fafd;
+  --header-bg:linear-gradient(90deg,#ffffff 0%,#e3eef8 100%);
+  --shadow:0 4px 14px rgba(20,50,80,.12);
+  --grid-line:rgba(0,90,150,.06);
+}
+
+/* ==========================================================================
+   2. BASE
+   ========================================================================== */
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  font-family:'Segoe UI','Leelawadee UI','Noto Sans Thai','Sarabun',Tahoma,Geneva,Verdana,sans-serif;
+  background:var(--bg);
+  background-image:
+    linear-gradient(var(--grid-line) 1px,transparent 1px),
+    linear-gradient(90deg,var(--grid-line) 1px,transparent 1px);
+  background-size:36px 36px;
+  color:var(--text);
+  line-height:1.4;
+  min-height:100vh;
+}
+html[lang="th"] *{letter-spacing:0!important}
+html[lang="th"] body{line-height:1.55}
+#app{max-width:1680px;margin:0 auto;padding:12px 16px 24px}
+.hidden{display:none!important}
+button,input,select{font-family:inherit}
+
+/* ==========================================================================
+   3. HEADER
+   ========================================================================== */
+.header{
+  display:flex;flex-wrap:wrap;align-items:center;gap:16px;
+  background:var(--header-bg);
+  border:1px solid var(--border);border-left:5px solid var(--accent);
+  border-radius:10px;padding:12px 18px;box-shadow:var(--shadow);
+}
+/* Company logo (SCGP) on a white plate so the colours stay correct in dark mode.
+   The PNG has large white margins, so it is cropped with background-size/position. */
+.logo-box{
+  flex:0 0 auto;height:72px;padding:8px 14px;background:#fff;border-radius:10px;
+  border:1px solid var(--border);display:flex;align-items:center;justify-content:center;
+}
+.logo-crop{
+  height:100%;aspect-ratio:6330/1870;
+  background:url("SCGP_Primary_Logo-01.png") center/126.4% auto no-repeat;
+}
+.head-title{flex:1 1 320px;min-width:240px}
+.head-title h1{margin:0;font-size:clamp(18px,2.4vw,30px);letter-spacing:1.5px;font-weight:700;text-transform:uppercase}
+.head-title .sub{color:var(--accent);font-size:clamp(12px,1.3vw,15px);letter-spacing:1px;margin-top:2px;font-weight:600}
+.head-right{display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+.clock{text-align:right}
+.clock .time{font-size:clamp(26px,3vw,40px);font-weight:700;color:var(--accent);font-variant-numeric:tabular-nums;line-height:1}
+.clock .date{font-size:13px;color:var(--muted)}
+.upd{font-size:11px;color:var(--muted)}
+.upd b{color:var(--text)}
+.head-btns{display:flex;gap:8px;flex-wrap:wrap;align-items:center;justify-content:flex-end}
+.icon-btn{
+  background:transparent;border:1px solid var(--border);color:var(--text);border-radius:6px;
+  padding:6px 10px;font-size:12px;cursor:pointer;font-weight:600;transition:.2s;
+}
+.icon-btn:hover{border-color:var(--accent);color:var(--accent)}
+
+/* Language switch (EN | TH) */
+.lang-sw{display:inline-flex;border:1px solid var(--border);border-radius:6px;overflow:hidden}
+.lang-sw button{background:transparent;border:0;color:var(--muted);padding:6px 11px;font-size:12px;font-weight:700;cursor:pointer;transition:.2s}
+.lang-sw button:hover{color:var(--accent)}
+.lang-sw button.active{background:var(--accent);color:#04202e}
+.lang-sw button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
+[data-theme="light"] .lang-sw button.active,[data-theme="light"] .seg input:checked+span{color:#fff}
+
+/* ==========================================================================
+   4. SYSTEM STATUS BANNER
+   ========================================================================== */
+.alarm{
+  margin-top:12px;padding:12px 18px;border-radius:10px;border:2px solid;
+  display:flex;gap:14px;align-items:center;flex-wrap:wrap;
+}
+.alarm .al-ic{font-size:34px;line-height:1}
+.alarm .al-h{font-size:clamp(16px,2vw,22px);font-weight:800;letter-spacing:.5px}
+.alarm .al-d{font-size:13px;color:var(--text)}
+.alarm .al-a{margin-left:auto;font-size:13px;font-weight:700;padding:6px 12px;border-radius:6px;background:rgba(0,0,0,.2);color:var(--text)}
+.alarm.ok{background:rgba(34,197,94,.13);border-color:var(--good);color:var(--good)}
+.alarm.warning{background:rgba(255,159,28,.15);border-color:var(--warn);color:var(--warn)}
+.alarm.critical{background:rgba(239,68,68,.18);border-color:var(--crit);color:var(--crit);animation:critGlow 1s infinite}
+.alarm.critical .al-ic{animation:blink 1s steps(2,start) infinite}
+
+/* ==========================================================================
+   5. GENERIC CARD / SECTION
+   ========================================================================== */
+.card{
+  background:var(--card);border:1px solid var(--border);border-radius:10px;
+  padding:16px;box-shadow:var(--shadow);
+}
+section{margin-top:14px}
+.sec-title{
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 12px;
+  font-size:13px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--accent);
+}
+.sec-title::before{content:'';width:5px;height:16px;background:var(--accent);border-radius:2px}
+.sec-title .spacer{flex:1}
+
+details.fold>summary{
+  cursor:pointer;list-style:none;font-size:13px;font-weight:700;letter-spacing:2px;text-transform:uppercase;
+  color:var(--accent);display:flex;align-items:center;gap:10px;
+}
+details.fold>summary::-webkit-details-marker{display:none}
+details.fold>summary::before{content:'\25B8';display:inline-block;transition:transform .2s;font-size:16px}
+details.fold[open]>summary::before{transform:rotate(90deg)}
+details.fold[open]>summary{margin-bottom:12px}
+
+/* ==========================================================================
+   6. KPI CARDS
+   ========================================================================== */
+.kpi-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
+.kpi{border-left:5px solid var(--accent);position:relative;overflow:hidden}
+.kpi .k-label{font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:var(--muted);font-weight:600}
+.kpi .k-value{font-size:clamp(30px,3.2vw,46px);font-weight:700;line-height:1.1;margin:6px 0 2px;font-variant-numeric:tabular-nums}
+.kpi .k-value small{font-size:.4em;color:var(--muted);font-weight:600;margin-left:4px}
+.kpi .k-sub{font-size:12px;color:var(--muted)}
+.kpi.main .k-value{color:var(--accent)}
+.bar{height:10px;background:var(--track);border-radius:5px;margin-top:10px;overflow:hidden}
+.bar>div{height:100%;width:0;background:var(--good);transition:width 1.2s ease,background .5s}
+.kpi.risk-low{border-left-color:var(--good)}   .kpi.risk-low .k-value{color:var(--good)}
+.kpi.risk-medium{border-left-color:var(--mid)} .kpi.risk-medium .k-value{color:var(--mid)}
+.kpi.risk-high{border-left-color:var(--warn)}  .kpi.risk-high .k-value{color:var(--warn)}
+.kpi.risk-critical{border-left-color:var(--crit);animation:critGlow 1s infinite}
+.kpi.risk-critical .k-value{color:var(--crit);animation:blink 1s steps(2,start) infinite}
+.kpi .k-sub.risk-sub{font-size:13px;font-weight:600;color:var(--text)}
+
+/* ==========================================================================
+   7. PROCESS FLOW DIAGRAM (SCADA STYLE)
+      Sequence: Emergency Tank 1, then SBR Tank, then Emergency Tank 2
+   ========================================================================== */
+.legend{display:flex;flex-wrap:wrap;gap:8px 18px;align-items:center;margin:0 0 14px;font-size:12px;color:var(--muted)}
+.lg{display:inline-flex;align-items:center;gap:6px;font-weight:700;color:var(--text)}
+.lg i{width:14px;height:14px;border-radius:3px;display:inline-block}
+.lg-hint{flex:1 1 260px;text-align:right}
+
+.flow{
+  display:grid;grid-template-columns:minmax(0,1fr) 78px minmax(0,1.5fr) 78px minmax(0,1fr);
+  align-items:center;
+}
+.tank-block{text-align:center}
+.tank-head{display:flex;justify-content:center;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+.tank-name{font-weight:700;letter-spacing:1px;text-transform:uppercase;font-size:15px}
+.badge{
+  font-size:12px;font-weight:800;letter-spacing:1px;padding:3px 10px;border-radius:12px;
+  background:var(--good);color:#04210f;
+}
+.st-warning .badge{background:var(--warn);color:#2b1600}
+.st-critical .badge{background:var(--crit);color:#fff;animation:blink 1s steps(2,start) infinite}
+.tank-spec{font-size:11px;color:var(--muted);margin-top:8px}
+
+.tank{
+  position:relative;overflow:hidden;margin:0 auto;
+  background:radial-gradient(circle at 50% 25%,#14395c,#081a2a);
+  border:5px solid #4a7094;
+  box-shadow:inset 0 0 28px rgba(0,0,0,.65),0 0 0 3px rgba(0,0,0,.25);
+}
+.tank-circle{width:100%;max-width:300px;aspect-ratio:1/1;border-radius:50%}
+.tank-rect{width:100%;height:270px;border-radius:10px}
+.st-warning .tank{border-color:var(--warn)}
+.st-critical .tank{border-color:var(--crit);animation:critPulse 1s infinite}
+
+/* Animated water (blue = normal, orange = warning, red = critical) */
+.water{
+  position:absolute;left:0;right:0;bottom:0;height:0;z-index:1;opacity:.93;
+  background:linear-gradient(180deg,#1aa7ea 0%,#0b5fa5 55%,#083e73 100%);
+  transition:height 1.4s cubic-bezier(.4,0,.2,1);
+}
+.water::before,.water::after{
+  content:'';position:absolute;left:0;width:100%;height:14px;background-repeat:repeat-x;background-size:100px 14px;
+}
+.water::before{
+  top:-12px;animation:waveMove 4s linear infinite;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 14' preserveAspectRatio='none'%3E%3Cpath d='M0 7 Q12.5 0 25 7 T50 7 T75 7 T100 7 V14 H0 Z' fill='%231aa7ea'/%3E%3C/svg%3E");
+}
+.water::after{
+  top:-8px;opacity:.55;animation:waveMove 7s linear infinite reverse;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 14' preserveAspectRatio='none'%3E%3Cpath d='M0 7 Q12.5 14 25 7 T50 7 T75 7 T100 7 V14 H0 Z' fill='%2358c8ff'/%3E%3C/svg%3E");
+}
+.st-warning .water{background:linear-gradient(180deg,#ffb23e 0%,#e07b0b 55%,#9a5206 100%)}
+.st-warning .water::before{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 14' preserveAspectRatio='none'%3E%3Cpath d='M0 7 Q12.5 0 25 7 T50 7 T75 7 T100 7 V14 H0 Z' fill='%23ffb23e'/%3E%3C/svg%3E")}
+.st-warning .water::after{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 14' preserveAspectRatio='none'%3E%3Cpath d='M0 7 Q12.5 14 25 7 T50 7 T75 7 T100 7 V14 H0 Z' fill='%23ffd08a'/%3E%3C/svg%3E")}
+.st-critical .water{background:linear-gradient(180deg,#ff6b6b 0%,#d62f2f 55%,#8f1d1d 100%)}
+.st-critical .water::before{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 14' preserveAspectRatio='none'%3E%3Cpath d='M0 7 Q12.5 0 25 7 T50 7 T75 7 T100 7 V14 H0 Z' fill='%23ff6b6b'/%3E%3C/svg%3E")}
+.st-critical .water::after{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 14' preserveAspectRatio='none'%3E%3Cpath d='M0 7 Q12.5 14 25 7 T50 7 T75 7 T100 7 V14 H0 Z' fill='%23ff9a9a'/%3E%3C/svg%3E")}
+
+.th-line{position:absolute;left:0;right:0;border-top:2px dashed;z-index:2;pointer-events:none}
+.th-line i{
+  position:absolute;left:50%;transform:translateX(-50%);top:-9px;font-size:10px;font-style:normal;font-weight:700;
+  padding:0 6px;border-radius:3px;background:rgba(5,20,34,.78);white-space:nowrap;
+}
+.th-line.w{border-color:rgba(255,159,28,.9)} .th-line.w i{color:#ffb54d}
+.th-line.c{border-color:rgba(239,68,68,.95)} .th-line.c i{color:#ff7b7b}
+
+.tank-content{
+  position:absolute;top:0;left:0;right:0;bottom:0;z-index:3;color:#fff;text-align:center;
+  display:flex;flex-direction:column;align-items:center;justify-content:center;
+}
+.pct{font-size:clamp(40px,4.4vw,60px);font-weight:800;line-height:1;text-shadow:0 2px 10px rgba(0,0,0,.85);font-variant-numeric:tabular-nums}
+.st-critical .pct{animation:blink 1s steps(2,start) infinite}
+.pct-label{font-size:11px;letter-spacing:2px;color:#cfeaff;margin-top:4px;text-shadow:0 1px 4px rgba(0,0,0,.8);font-weight:700}
+
+.tank-info{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin:12px auto 0;max-width:340px;text-align:left}
+.tank-block.wide .tank-info{max-width:none;grid-template-columns:repeat(4,minmax(0,1fr))}
+.ti{background:var(--card-2);border:1px solid var(--border);border-radius:8px;padding:6px 10px;min-width:0}
+.ti span{display:block;font-size:11px;color:var(--muted);font-weight:600}
+.ti b{display:block;font-size:16px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.ti.key{
+  grid-column:1/-1;border-left:6px solid var(--good);
+  display:flex;flex-wrap:wrap;align-items:baseline;justify-content:space-between;gap:2px 10px;
+}
+.ti.key span{flex:1 1 100%;font-size:12px}
+.ti.key b{font-size:clamp(22px,2.4vw,30px);color:var(--good)}
+.ti.key em{font-style:normal;font-size:12px;color:var(--muted);font-weight:700}
+.st-warning .ti.key{border-left-color:var(--warn)} .st-warning .ti.key b{color:var(--warn)}
+.st-critical .ti.key{border-left-color:var(--crit)} .st-critical .ti.key b{color:var(--crit)}
+
+.pipe-col{position:relative;height:70px}
+.pipe-label{position:absolute;left:0;right:0;top:0;text-align:center;font-size:10px;letter-spacing:1px;color:var(--muted);font-weight:700}
+.pipe{
+  position:absolute;top:50%;margin-top:-9px;height:18px;border:2px solid #0a3556;border-radius:3px;
+  background:repeating-linear-gradient(90deg,#1d6fa5 0 14px,#2f93d4 14px 28px);background-size:28px 100%;
+  animation:flowX 1s linear infinite;
+}
+.pipe.fwd{left:0;right:14px}
+.pipe.rev{left:14px;right:0;animation-direction:reverse}
+.pipe::after{content:'';position:absolute;top:50%;transform:translateY(-50%);width:0;height:0}
+.pipe.fwd::after{right:-16px;border-left:14px solid var(--pipe);border-top:12px solid transparent;border-bottom:12px solid transparent}
+.pipe.rev::after{left:-16px;border-right:14px solid var(--pipe);border-top:12px solid transparent;border-bottom:12px solid transparent}
+
+.ret{
+  grid-column:1/-1;display:grid;height:38px;margin-top:12px;
+  grid-template-columns:minmax(0,1fr) 78px minmax(0,1.5fr) 78px minmax(0,1fr);
+}
+.ret>div{position:relative}
+.ret>div::after{content:'';position:absolute;left:0;right:0;top:0;bottom:0;border-bottom:2px solid var(--pipe)}
+.ret .c1::after{left:50%;border-left:2px solid var(--pipe)}
+.ret .c5::after{right:50%;border-right:2px solid var(--pipe)}
+.ret .c3::before{content:'';position:absolute;left:50%;top:0;bottom:0;border-left:2px solid var(--pipe)}
+.ret .c1::before,.ret .c5::before{
+  content:'';position:absolute;top:-4px;width:0;height:0;
+  border-left:7px solid transparent;border-right:7px solid transparent;border-bottom:11px solid var(--pipe);
+}
+.ret .c1::before{left:calc(50% - 6px)}
+.ret .c5::before{left:calc(50% - 8px)}
+.ret-lbl{position:absolute;left:calc(50% + 10px);top:8px;font-size:10px;font-weight:700;color:var(--muted);white-space:nowrap}
+
+/* ==========================================================================
+   8. DATA ENTRY PANEL / CONTROL PANEL
+   ========================================================================== */
+.steps{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+.step{background:var(--card-2);border:1px solid var(--border);border-radius:20px;padding:4px 14px;font-size:12px;font-weight:700;color:var(--accent)}
+.input-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.in-card{background:var(--card-2);border:1px solid var(--border);border-top:4px solid var(--accent);border-radius:8px;padding:14px}
+.in-title{font-weight:700;letter-spacing:1px;text-transform:uppercase;font-size:14px;display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.in-title small{color:var(--muted);font-weight:600;text-transform:none;letter-spacing:0}
+.seg{display:flex;margin:10px 0;border:1px solid var(--border);border-radius:6px;overflow:hidden}
+.seg label{flex:1;cursor:pointer}
+.seg input{position:absolute;opacity:0;pointer-events:none}
+.seg span{display:block;text-align:center;padding:9px 4px;font-size:12px;font-weight:700;color:var(--muted);transition:.2s}
+.seg input:checked+span{background:var(--accent);color:#04202e}
+.seg input:focus-visible+span{outline:2px solid var(--accent);outline-offset:-2px}
+.in-row{display:flex;align-items:center;gap:8px}
+.in-row input[type=number]{
+  flex:1;min-width:0;font-size:32px;font-weight:700;padding:6px 10px;border-radius:6px;
+  background:var(--input-bg);color:var(--text);border:2px solid var(--border);font-variant-numeric:tabular-nums;
+}
+.in-row input[type=number]:focus{outline:none;border-color:var(--accent)}
+.in-row input.invalid{border-color:var(--warn)}
+.unit{font-size:18px;font-weight:700;color:var(--accent);min-width:34px}
+.hint{font-size:11px;color:var(--muted);margin-top:6px;white-space:pre-line}
+.preview{font-size:13px;font-weight:700;margin-top:8px;padding:6px 10px;border-radius:6px;background:rgba(0,198,255,.08);min-height:30px}
+.preview.pv-normal{color:var(--good)} .preview.pv-warning{color:var(--warn)} .preview.pv-critical{color:var(--crit)}
+.warn-msg{font-size:12px;color:var(--warn);font-weight:600;margin-top:4px;min-height:16px}
+
+.controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:14px}
+.pending{flex:1 1 100%;font-size:13px;font-weight:700;color:var(--warn);background:rgba(255,159,28,.14);border:1px solid var(--warn);border-radius:6px;padding:8px 12px}
+.btn{
+  flex:1 1 150px;background:linear-gradient(180deg,#0a7fb0,#085f86);color:#fff;
+  border:1px solid rgba(0,198,255,.45);padding:11px 14px;border-radius:6px;font-weight:700;
+  letter-spacing:.8px;font-size:12px;cursor:pointer;transition:.18s;text-transform:uppercase;
+}
+.btn:hover{filter:brightness(1.15);transform:translateY(-1px)}
+.btn:active{transform:translateY(0)}
+.btn:focus-visible,.icon-btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.btn.primary{background:linear-gradient(180deg,#00c6ff,#0092c8);color:#031a26;border-color:#00c6ff;font-size:14px;flex:2 1 220px}
+.btn.primary.pulse{animation:btnPulse 1.2s infinite}
+.btn.danger{background:linear-gradient(180deg,#b3342f,#872320);border-color:rgba(239,68,68,.6)}
+.btn.ghost{background:transparent;color:var(--accent)}
+.autosave{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:6px;flex:1 1 220px}
+
+/* ==========================================================================
+   9. GAUGES
+   ========================================================================== */
+.gauge-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:14px}
+.gauge-card{text-align:center;padding:12px}
+.gauge-title{font-size:12px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;color:var(--muted)}
+.gauge{width:100%;max-width:260px;height:auto}
+.gauge-foot{font-size:12px;color:var(--muted)}
+.gauge-foot b{color:var(--text)}
+
+/* ==========================================================================
+   10. REPORT
+   ========================================================================== */
+.report-text{font-size:15px;line-height:1.65}
+.report-text p{margin:0 0 8px}
+.report-text .rec{border-left:4px solid var(--accent);background:var(--card-2);padding:8px 12px;border-radius:0 6px 6px 0;margin-top:8px;font-size:13px}
+.report-meta{font-size:11px;color:var(--muted);margin-bottom:8px}
+.table-wrap{overflow-x:auto;margin-top:10px}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:8px 10px;border-bottom:1px solid var(--border);text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+th:first-child,td:first-child{text-align:left}
+th{font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);background:var(--card-2)}
+.pill{display:inline-block;padding:1px 9px;border-radius:10px;font-size:11px;font-weight:700;color:#04210f;background:var(--good)}
+.pill.warning{background:var(--warn);color:#2b1600}
+.pill.critical{background:var(--crit);color:#fff}
+tfoot td{font-weight:700;border-top:2px solid var(--accent)}
+
+/* ==========================================================================
+   11. TRENDS
+   ========================================================================== */
+.trend-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}
+.chart-card h3{margin:0 0 8px;font-size:13px;letter-spacing:1px;color:var(--text);text-transform:uppercase}
+.chart-box{position:relative;height:250px}
+.chart-empty{
+  position:absolute;top:0;left:0;right:0;bottom:0;display:flex;align-items:center;justify-content:center;
+  text-align:center;color:var(--muted);font-size:13px;padding:20px;pointer-events:none;
+}
+select.sel{
+  background:var(--input-bg);color:var(--text);border:1px solid var(--border);border-radius:6px;
+  padding:6px 10px;font-size:12px;font-weight:600;text-transform:none;letter-spacing:0;
+}
+
+/* ==========================================================================
+   12. THRESHOLD CONFIG
+   ========================================================================== */
+.th-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) auto;gap:12px;align-items:end}
+.th-field label{display:block;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-bottom:4px;font-weight:600}
+.th-field input{
+  width:100%;padding:8px 10px;font-size:18px;font-weight:700;border-radius:6px;
+  background:var(--input-bg);color:var(--text);border:2px solid var(--border);
+}
+.th-field input:focus{outline:none;border-color:var(--accent)}
+.th-btns{display:flex;gap:8px}
+.th-btns .btn{flex:0 0 auto}
+.th-note{font-size:12px;color:var(--muted);margin-top:8px}
+
+/* ==========================================================================
+   13. FOOTER (Basic Calculation)
+   ========================================================================== */
+.footer h3{margin:0 0 6px;font-size:13px;letter-spacing:1.5px;color:var(--accent);text-transform:uppercase}
+.footer p,.footer li{font-size:12px;color:var(--muted)}
+.footer ul{margin:8px 0 0;padding-left:18px}
+.foot-line{margin-top:12px;font-size:11px;color:var(--muted);display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px}
+
+/* ==========================================================================
+   14. TOASTS
+   ========================================================================== */
+#toasts{position:fixed;right:14px;bottom:14px;z-index:9999;display:flex;flex-direction:column;gap:8px;max-width:min(420px,92vw)}
+.toast{
+  background:var(--card);color:var(--text);border:1px solid var(--border);border-left:5px solid var(--accent);
+  padding:10px 14px;border-radius:6px;font-size:13px;box-shadow:var(--shadow);animation:slideIn .25s ease;
+}
+.toast.ok{border-left-color:var(--good)} .toast.warn{border-left-color:var(--warn)} .toast.err{border-left-color:var(--crit)}
+
+/* ==========================================================================
+   15. ANIMATIONS
+   ========================================================================== */
+@keyframes waveMove{from{background-position-x:0}to{background-position-x:100px}}
+@keyframes flowX{from{background-position:0 0}to{background-position:28px 0}}
+@keyframes flowY{from{background-position:0 0}to{background-position:0 28px}}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}
+@keyframes critPulse{
+  0%,100%{box-shadow:inset 0 0 28px rgba(0,0,0,.65),0 0 0 0 rgba(239,68,68,.75)}
+  50%{box-shadow:inset 0 0 28px rgba(0,0,0,.65),0 0 30px 10px rgba(239,68,68,.55)}
+}
+@keyframes critGlow{0%,100%{box-shadow:var(--shadow)}50%{box-shadow:0 0 22px 4px rgba(239,68,68,.55)}}
+@keyframes btnPulse{0%,100%{box-shadow:0 0 0 0 rgba(0,198,255,.7)}50%{box-shadow:0 0 0 10px rgba(0,198,255,0)}}
+@keyframes slideIn{from{transform:translateX(30px);opacity:0}to{transform:none;opacity:1}}
+@media (prefers-reduced-motion:reduce){
+  .water::before,.water::after,.pipe{animation:none}
+}
+
+/* ==========================================================================
+   16. RESPONSIVE
+   ========================================================================== */
+@media screen and (max-width:1280px){
+  .kpi-grid,.gauge-grid{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .trend-grid{grid-template-columns:1fr}
+}
+@media screen and (max-width:1100px){
+  .flow{grid-template-columns:1fr}
+  .ret{display:none}
+  .pipe-col{height:76px}
+  .pipe-label{top:50%;left:calc(50% + 20px);right:auto;text-align:left;transform:translateY(-50%)}
+  .pipe{
+    left:50%;margin-left:-9px;margin-top:0;width:18px;height:auto;right:auto;
+    background:repeating-linear-gradient(180deg,#1d6fa5 0 14px,#2f93d4 14px 28px);background-size:100% 28px;
+    animation:flowY 1s linear infinite;
+  }
+  .pipe.fwd{top:0;bottom:14px;left:50%;right:auto}
+  .pipe.rev{top:14px;bottom:0;left:50%;right:auto;animation-direction:reverse}
+  .pipe.fwd::after{left:50%;right:auto;top:auto;bottom:-16px;transform:translateX(-50%);border:12px solid transparent;border-top:14px solid var(--pipe);border-left:12px solid transparent;border-bottom:0}
+  .pipe.rev::after{left:50%;right:auto;top:-16px;bottom:auto;transform:translateX(-50%);border:12px solid transparent;border-bottom:14px solid var(--pipe);border-right:12px solid transparent;border-top:0}
+  .input-grid{grid-template-columns:1fr}
+  .th-grid{grid-template-columns:1fr 1fr}
+  .th-btns{grid-column:1/-1}
+  .lg-hint{text-align:left}
+}
+@media screen and (max-width:640px){
+  #app{padding:8px}
+  .kpi-grid,.gauge-grid{grid-template-columns:1fr}
+  .head-right{align-items:flex-start;width:100%}
+  .head-btns{justify-content:flex-start}
+  .clock{text-align:left}
+  .th-grid{grid-template-columns:1fr}
+  .tank-rect{height:240px}
+  .tank-block.wide .tank-info{grid-template-columns:1fr 1fr}
+  .alarm .al-a{margin-left:0;width:100%}
+  .logo-box{height:56px}
+  .btn{flex:1 1 130px}
+}
+
+/* ==========================================================================
+   17. PRINT  (A4 LANDSCAPE)
+   ========================================================================== */
+@page{size:A4 landscape;margin:8mm}
+@media print{
+  html,body{background:#fff!important;background-image:none!important;color:#000}
+  *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  #app{max-width:none;padding:0}
+  .no-print{display:none!important}
+  .card{box-shadow:none;break-inside:avoid;padding:10px}
+  section{margin-top:8px}
+  .header{padding:8px 12px}
+  .logo-box{height:52px;padding:4px 10px}
+  .head-title h1{font-size:18px}
+  .clock .time{font-size:22px}
+  .kpi .k-value{font-size:28px}
+  .alarm{padding:6px 12px}
+  .alarm .al-ic{font-size:22px}
+  .tank-circle{max-width:190px}
+  .tank-rect{height:190px}
+  .pct{font-size:30px}
+  .tank-info{margin-top:6px;gap:4px}
+  .ti{padding:3px 6px}
+  .ti b{font-size:11px}
+  .ti.key b{font-size:15px}
+  .ti span{font-size:8px}
+  .tank-spec{display:none}
+  .pipe-col{height:56px}
+  .ret{height:28px}
+  .chart-box{height:180px}
+  .print-break{break-before:page}
+  .kpi-grid{grid-template-columns:repeat(4,1fr)}
+  .gauge-grid{grid-template-columns:repeat(4,1fr)}
+  .trend-grid{grid-template-columns:repeat(3,1fr)}
+  .tank-block.wide .tank-info{grid-template-columns:repeat(4,1fr)}
+  .water{transition:none}
+  .tank,.alarm,.kpi,.pct,.badge,.al-ic{animation:none!important}
+}
+</style>
+</head>
+
+<body>
+<noscript>This dashboard requires JavaScript to be enabled.</noscript>
+
+<div id="app">
+
+  <!-- ====================================================================
+       HEADER : SCGP logo, fixed English title, live clock, last-updated, toggles
+       NOTE: the main title is intentionally NOT translated (no data-i18n)
+       ==================================================================== -->
+  <header class="header">
+    <div class="logo-box">
+      <div class="logo-crop" role="img" aria-label="SCGP"></div>
+    </div>
+
+    <div class="head-title">
+      <h1 translate="no" class="notranslate">Abnormal Storage Monitoring Dashboard</h1>
+      <div class="sub" data-i18n="h_sub">Emergency Storage Capacity Management</div>
+    </div>
+
+    <div class="head-right">
+      <div class="clock">
+        <div class="time" id="clockTime">--:--:--</div>
+        <div class="date" id="clockDate">---</div>
+      </div>
+      <div class="upd"><span data-i18n="h_last">Last updated:</span> <b id="lastUpdated">--</b></div>
+      <div class="head-btns no-export no-print">
+        <div class="lang-sw" role="group" data-i18n-aria="aria_lang">
+          <button type="button" data-lang="en" aria-pressed="true">EN</button>
+          <button type="button" data-lang="th" aria-pressed="false">ไทย</button>
+        </div>
+        <button class="icon-btn" id="btnTheme" type="button" data-i18n-aria="aria_theme">&#9788; Light Mode</button>
+        <button class="icon-btn" id="btnFS" type="button" data-i18n-aria="aria_fs">&#9974; Full Screen</button>
+        <button class="icon-btn" id="btnSync" type="button" title="Click to reload shared data" data-sync="off">&#128190; Local Only</button>
+      </div>
+    </div>
+  </header>
+
+  <!-- System status banner: always visible (OK / WARNING / CRITICAL) -->
+  <div id="alarmBanner" class="alarm ok" role="alert" aria-live="assertive"></div>
+
+  <!-- KPI CARDS -->
+  <section aria-label="Key performance indicators">
+    <div class="kpi-grid">
+      <div class="card kpi main">
+        <div class="k-label" data-i18n="kpi_avail">Total Available Capacity</div>
+        <div class="k-value"><span id="kpiAvail">0</span><small>m&sup3;</small></div>
+        <div class="k-sub" id="kpiAvailSub">Emergency 1 + Emergency 2 + SBR</div>
+      </div>
+      <div class="card kpi">
+        <div class="k-label" data-i18n="kpi_occ">Total Occupied Volume</div>
+        <div class="k-value"><span id="kpiOcc">0</span><small>m&sup3;</small></div>
+        <div class="k-sub" id="kpiOccSub">of total design volume</div>
+      </div>
+      <div class="card kpi">
+        <div class="k-label" data-i18n="kpi_util">System Utilization</div>
+        <div class="k-value"><span id="kpiUtil">0</span><small>%</small></div>
+        <div class="bar"><div id="kpiUtilBar"></div></div>
+      </div>
+      <div class="card kpi risk-low" id="kpiRiskCard">
+        <div class="k-label" data-i18n="kpi_risk">Storage Risk Level</div>
+        <div class="k-value" id="kpiRisk">LOW</div>
+        <div class="k-sub risk-sub" id="kpiRiskSub">--</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- MAIN PROCESS FLOW DIAGRAM (generated by JavaScript) -->
+  <section aria-label="Process flow diagram">
+    <div class="card">
+      <h2 class="sec-title"><span data-i18n="sec_flow">Process Flow</span></h2>
+      <div class="legend" id="legend"></div>
+      <div class="flow" id="flow"></div>
+    </div>
+  </section>
+
+  <!-- DATA ENTRY + CONTROL PANEL -->
+  <section class="no-export no-print" aria-label="Data entry and control panel">
+    <div class="card">
+      <h2 class="sec-title"><span data-i18n="sec_ctl">Data Entry &amp; Operational Control Panel</span></h2>
+      <div class="steps">
+        <span class="step" data-i18n="stp1">1 Choose input type</span>
+        <span class="step" data-i18n="stp2">2 Enter the value</span>
+        <span class="step" data-i18n="stp3">3 Press UPDATE DASHBOARD</span>
+      </div>
+      <div class="input-grid" id="inputGrid"></div>
+
+      <div class="controls">
+        <div class="pending hidden" id="pendingMsg" data-i18n="pending">Values changed - press UPDATE DASHBOARD to apply.</div>
+        <button class="btn primary" id="btnUpdate" type="button" data-i18n="b_update">Update Dashboard</button>
+        <button class="btn" id="btnSave" type="button" data-i18n="b_save">Save Record</button>
+        <button class="btn" id="btnPNG" type="button" data-i18n="b_png">Export PNG</button>
+        <button class="btn" id="btnCSV" type="button" data-i18n="b_csv">Export CSV</button>
+        <button class="btn" id="btnPrint" type="button" data-i18n="b_print">Print Report</button>
+        <button class="btn danger" id="btnReset" type="button" data-i18n="b_reset">Reset</button>
+        <label class="autosave"><input type="checkbox" id="autoSave"> <span data-i18n="ctl_auto">Auto-save a record on every UPDATE</span></label>
+      </div>
+    </div>
+  </section>
+
+  <!-- TANK CAPACITY GAUGES -->
+  <section aria-label="Tank capacity gauges">
+    <h2 class="sec-title"><span data-i18n="sec_gauge">Tank Capacity Gauges</span></h2>
+    <div class="gauge-grid" id="gaugeGrid"></div>
+  </section>
+
+  <!-- AUTOMATIC REPORT SUMMARY -->
+  <section aria-label="Report summary">
+    <div class="card" id="reportCard">
+      <h2 class="sec-title">
+        <span data-i18n="sec_report">Automatic Report Summary</span>
+        <span class="spacer"></span>
+        <span class="no-export no-print" style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="icon-btn" id="btnReportImg" type="button">&#128247; <span data-i18n="rpt_img">Download Report Image</span></button>
+          <button class="icon-btn" id="btnReportCSV" type="button">&#128196; <span data-i18n="rpt_csv">Download Report CSV</span></button>
+        </span>
+      </h2>
+      <div class="report-meta" id="reportMeta"></div>
+      <div class="report-text" id="reportText" aria-live="polite"></div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th data-i18n="c_tank">Tank</th><th data-i18n="c_free">Free Space (cm)</th><th data-i18n="c_depth">Water Depth (m)</th>
+              <th data-i18n="c_vol">Current Volume (m³)</th><th data-i18n="c_avail">Available Volume (m³)</th>
+              <th data-i18n="c_util">Utilization</th><th data-i18n="c_remain">Remaining</th><th data-i18n="c_status">Status</th>
+            </tr>
+          </thead>
+          <tbody id="reportBody"></tbody>
+          <tfoot id="reportFoot"></tfoot>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- HISTORICAL TRENDS (Chart.js) -->
+  <section class="print-break" aria-label="Historical trends">
+    <h2 class="sec-title">
+      <span data-i18n="sec_trend">Historical Trend Monitoring</span>
+      <span class="spacer"></span>
+      <label class="no-export no-print" style="display:flex;align-items:center;gap:8px;letter-spacing:0;text-transform:none;font-size:12px;color:var(--muted)">
+        <span data-i18n="tr_param">Parameter:</span>
+        <select class="sel" id="metricSel">
+          <option value="level" data-i18n="tr_m_level">Level / Utilization (%)</option>
+          <option value="volume" data-i18n="tr_m_vol">Current Volume (m³)</option>
+          <option value="available" data-i18n="tr_m_avail">Available Volume (m³)</option>
+        </select>
+      </label>
+    </h2>
+    <div class="trend-grid">
+      <div class="card chart-card"><h3 data-i18n="tr_24">Last 24 Hours</h3><div class="chart-box"><canvas id="chart24"></canvas><div class="chart-empty" id="empty24" data-i18n-html="tr_empty"></div></div></div>
+      <div class="card chart-card"><h3 data-i18n="tr_7">Last 7 Days</h3><div class="chart-box"><canvas id="chart7"></canvas><div class="chart-empty" id="empty7" data-i18n-html="tr_empty"></div></div></div>
+      <div class="card chart-card"><h3 data-i18n="tr_30">Last 30 Days</h3><div class="chart-box"><canvas id="chart30"></canvas><div class="chart-empty" id="empty30" data-i18n-html="tr_empty"></div></div></div>
+    </div>
+  </section>
+
+  <!-- THRESHOLD CONFIGURATION PANEL (collapsed by default) -->
+  <section class="no-export no-print" aria-label="Threshold configuration">
+    <details class="card fold">
+      <summary data-i18n="sec_th">Threshold Configuration</summary>
+      <div class="th-grid">
+        <div class="th-field"><label for="thMed" data-i18n="th_med">Medium risk starts at (%)</label><input type="number" id="thMed" step="1"></div>
+        <div class="th-field"><label for="thWarn" data-i18n="th_warn">Warning / High starts at (%)</label><input type="number" id="thWarn" step="1"></div>
+        <div class="th-field"><label for="thCrit" data-i18n="th_crit">Critical starts at (%)</label><input type="number" id="thCrit" step="1"></div>
+        <div class="th-btns">
+          <button class="btn primary" id="btnThApply" type="button" data-i18n="th_apply">Apply</button>
+          <button class="btn ghost" id="btnThDefault" type="button" data-i18n="th_def">Defaults</button>
+        </div>
+      </div>
+      <div class="th-note" data-i18n="th_note"></div>
+    </details>
+  </section>
+
+  <!-- RECENT RECORDS (collapsed by default) -->
+  <section class="no-export no-print" aria-label="Recent records">
+    <details class="card fold">
+      <summary data-i18n="sec_hist">Recent Saved Records</summary>
+      <div style="text-align:right"><button class="icon-btn" id="btnClearHist" type="button" data-i18n="hs_clear">Clear History</button></div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th data-i18n="hs_dt">Date / Time</th><th data-i18n="c_tank">Tank</th><th data-i18n="hs_level">Level (%)</th>
+            <th data-i18n="c_vol">Current Volume (m³)</th><th data-i18n="c_avail">Available Volume (m³)</th><th data-i18n="c_free">Free Space (cm)</th>
+          </tr></thead>
+          <tbody id="historyBody"></tbody>
+        </table>
+      </div>
+      <div class="th-note" id="historyNote"></div>
+    </details>
+  </section>
+
+  <!-- BASIC CALCULATION -->
+  <section aria-label="Basic calculation">
+    <div class="card footer">
+      <h3 data-i18n="ft_h">Basic Calculation</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr>
+            <th data-i18n="c_tank">Tank</th><th data-i18n="ft_type">Type</th><th data-i18n="ft_area">Plan Area (m²)</th>
+            <th data-i18n="ft_depth">Calc. Depth (m)</th><th data-i18n="ft_design">Design Volume (m³)</th><th data-i18n="ft_minfs">Min. Free Space (cm)</th>
+          </tr></thead>
+          <tbody id="basisBody"></tbody>
+        </table>
+      </div>
+      <ul>
+        <li data-i18n="ft_b1"></li>
+        <li data-i18n="ft_b2"></li>
+        <li data-i18n="ft_b3"></li>
+        <li data-i18n="ft_b4"></li>
+        <li data-i18n="ft_b5"></li>
+      </ul>
+      <div class="foot-line">
+        <span data-i18n="ft_doc">ESCMS Dashboard &bull; Document: ESCMS-DASH-001 &bull; Rev. 1.4</span>
+        <span><span data-i18n="ft_gen">Report generated:</span> <b id="footUpdated">--</b></span>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div id="toasts" class="no-export no-print" aria-live="polite"></div>
+
+<script>
+/* ============================================================================
+   ESCMS - APPLICATION SCRIPT
+   Sections:
+     1. Helpers
+     2. Configuration (tank master data, defaults, storage keys)
+     3. Internationalisation (English / Thai dictionary + translator)
+     4. Engineering calculations & validation
+     5. UI construction
+     6. Rendering (tanks, KPIs, gauges, status banner, report)
+     7. Records, CSV, charts
+     8. Export / print / fullscreen / theme / language
+     9. Event wiring & initialisation
+   ============================================================================ */
+(function () {
+  'use strict';
+
+  /* ==========================================================================
+     1. HELPERS
+     ========================================================================== */
+  const $  = (s, c = document) => c.querySelector(s);
+  const $$ = (s, c = document) => Array.from(c.querySelectorAll(s));
+  const pad = n => String(n).padStart(2, '0');
+  const clamp = (v, a, b) => Math.min(Math.max(v, a), b);
+  const fmt = (n, d = 0) => Number(n).toLocaleString('en-US', { minimumFractionDigits: d, maximumFractionDigits: d });
+  const fmtTime = d => pad(d.getHours()) + ':' + pad(d.getMinutes());
+  const fmtDateTime = d => pad(d.getDate()) + '/' + pad(d.getMonth() + 1) + '/' + d.getFullYear() + ' ' +
+                           pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+  const stamp = d => d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '_' + pad(d.getHours()) + pad(d.getMinutes()) + pad(d.getSeconds());
+  const cssVar = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+
+  /** Safe localStorage wrapper (never throws) */
+  const store = {
+    get(k, def) { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : def; } catch (e) { return def; } },
+    set(k, v)   { try { localStorage.setItem(k, JSON.stringify(v)); return true; } catch (e) { return false; } },
+    del(k)      { try { localStorage.removeItem(k); } catch (e) { /* ignore */ } }
+  };
+
+  /** Animated numeric counter */
+  function animateNumber(el, to, decimals, suffix, dur) {
+    decimals = decimals || 0; suffix = suffix || ''; dur = dur || 900;
+    const from = el._cur !== undefined ? el._cur : 0;
+    if (el._raf) cancelAnimationFrame(el._raf);
+    const t0 = performance.now();
+    function step(now) {
+      const p = Math.min((now - t0) / dur, 1);
+      const e = 1 - Math.pow(1 - p, 3);
+      const v = from + (to - from) * e;
+      el._cur = v;
+      el.textContent = fmt(v, decimals) + suffix;
+      if (p < 1) el._raf = requestAnimationFrame(step); else { el._cur = to; el.textContent = fmt(to, decimals) + suffix; }
+    }
+    el._raf = requestAnimationFrame(step);
+  }
+
+  const csvCell = v => '"' + String(v).replace(/"/g, '""') + '"';
+
+  /** Download text content as a file (UTF-8 BOM so Excel opens Thai/English correctly) */
+  function downloadText(name, text, mime) {
+    const blob = new Blob(['\ufeff' + text], { type: mime || 'text/csv;charset=utf-8' });
+    const a = document.createElement('a');
+    const url = URL.createObjectURL(blob);
+    a.href = url; a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1500);
+  }
+
+  /* ==========================================================================
+     2. CONFIGURATION
+     ========================================================================== */
+  const STORAGE = {
+    state: 'escms_state_v1', records: 'escms_records_v1', thresholds: 'escms_thresholds_v1',
+    theme: 'escms_theme_v1', auto: 'escms_autosave_v1', lang: 'escms_lang_v1',
+    editKey: 'escms_editkey_v1'
+  };
+
+  /** Cloudflare Worker endpoint (see src/worker.js).
+      When the page is opened from a file or Live Server the API is not found
+      and the dashboard falls back to browser-only storage automatically. */
+  const API_BASE = '/api';
+  const CLOUD_POLL_MS = 30000;
+
+  /** Tank master data. DISPLAY SEQUENCE (per P&ID sketch):
+      Emergency Tank 1, SBR Tank, Emergency Tank 2. */
+  const TANKS = [
+    {
+      id: 't1', typeKey: 'type_circ', shape: 'circle',
+      diameter: 46.0, radius: 23.0, outletDepth: 3.38, centerDepth: 6.26,
+      design: 7000, color: '#00c6ff'
+    },
+    {
+      id: 't3', typeKey: 'type_rect', shape: 'rect',
+      length: 81.0, width: 62.7, depth: 3.77,
+      design: 19000, color: '#34d399'
+    },
+    {
+      id: 't2', typeKey: 'type_circ', shape: 'circle',
+      diameter: 45.7, radius: 22.85, outletDepth: 4.20,
+      design: 6800, color: '#a78bfa'
+    }
+  ];
+
+  const TANK = {};
+  TANKS.forEach(t => { TANK[t.id] = t; });
+
+  /* Derived geometry:
+     Area (m2): circle = PI x r^2 ; rectangle = L x W.
+     Tank 1 calc depth = Design Volume / Area (accounts for conical bottom).
+     Tank 2 calc depth = outlet depth 4.20 m. Tank 3 = basin depth 3.77 m.
+     Minimum free space = depth - design/area. */
+  TANKS.forEach(function (t) {
+    if (t.shape === 'circle') { t.area = Math.PI * Math.pow(t.radius, 2); }
+    else { t.area = t.length * t.width; }
+  });
+  TANK.t1.depth = TANK.t1.design / TANK.t1.area;
+  TANK.t2.depth = TANK.t2.outletDepth;
+  TANKS.forEach(t => { t.fsMin = Math.max(0, t.depth - t.design / t.area); });
+
+  const TOTAL_DESIGN = TANKS.reduce((s, t) => s + t.design, 0);
+
+  const DEFAULT_STATE = {
+    t1: { mode: 'free', value: 300 },
+    t2: { mode: 'free', value: 300 },
+    t3: { mode: 'free', value: 250 }
+  };
+  const DEFAULT_TH = { med: 50, warn: 70, crit: 90 };
+
+  const COLORS = { normal: '#22c55e', warning: '#ff9f1c', critical: '#ef4444', low: '#22c55e', medium: '#eab308', high: '#ff9f1c' };
+  const ICON = { normal: '\u2714', ok: '\u2714', warning: '\u26A0', critical: '\u26D4' };
+
+  /* ==========================================================================
+     3. INTERNATIONALISATION  (English / Thai)
+        The main dashboard title is NOT part of the dictionary on purpose.
+     ========================================================================== */
+  const I18N = {
+    en: {
+      h_sub: 'Emergency Storage Capacity Management',
+      h_last: 'Last updated:',
+      btn_light: 'Light Mode', btn_dark: 'Dark Mode', btn_fs: 'Full Screen', btn_fs_exit: 'Exit Full Screen',
+      aria_theme: 'Toggle dark or light mode', aria_fs: 'Toggle full screen', aria_lang: 'Language',
+      aria_level: 'level indicator', aria_mode: 'input mode', aria_value: 'value', aria_gauge: 'capacity gauge',
+
+      kpi_avail: 'Total Available Capacity', kpi_occ: 'Total Occupied Volume',
+      kpi_util: 'System Utilization', kpi_risk: 'Storage Risk Level',
+      kpi_avail_sub: 'E-1 {a} + E-2 {b} + SBR {c} m\u00b3',
+      kpi_occ_sub: 'of {total} m\u00b3 total design volume',
+      risk_low: 'LOW', risk_medium: 'MEDIUM', risk_high: 'HIGH', risk_critical: 'CRITICAL',
+      rk_low: 'Safe \u2014 plenty of space left', rk_medium: 'Watch \u2014 free space is reducing',
+      rk_high: 'Warning \u2014 little space left', rk_critical: 'Danger \u2014 almost full',
+      st_normal: 'NORMAL', st_warning: 'WARNING', st_critical: 'CRITICAL',
+
+      sec_flow: 'Process Flow \u2014 Emergency Storage System',
+      sec_ctl: 'Data Entry & Operational Control Panel',
+      sec_gauge: 'Tank Capacity Gauges',
+      sec_report: 'Automatic Report Summary',
+      sec_trend: 'Historical Trend Monitoring',
+      sec_th: 'Threshold Configuration',
+      sec_hist: 'Recent Saved Records',
+
+      lg_normal: 'Normal', lg_warning: 'Warning', lg_critical: 'Critical',
+      lg_hint: 'Level % = how FULL the tank is. Higher % means LESS free space left.',
+
+      tn_t1: 'Emergency Tank 1', tn_t3: 'SBR Tank', tn_t2: 'Emergency Tank 2',
+      type_circ: 'Circular Clarifier', type_rect: 'Rectangular Basin',
+      spec_t1: 'Circular Clarifier \u2022 \u00d8 46.0 m (R 23.0 m) \u2022 Outlet depth 3.38 m / Centre depth 6.26 m \u2022 Design 7,000 m\u00b3',
+      spec_t2: 'Circular Clarifier \u2022 \u00d8 45.7 m (R 22.85 m) \u2022 Outlet depth 4.20 m \u2022 Design 6,800 m\u00b3',
+      spec_t3: 'Rectangular Basin \u2022 81.0 m \u00d7 62.7 m \u2022 Depth 3.77 m \u2022 Design 19,000 m\u00b3',
+      ro_filled: 'FILLED', ro_avail_key: 'AVAILABLE VOLUME (space to receive water)',
+      ro_free: 'Free Space', ro_depth: 'Water Depth', ro_vol: 'Current Volume',
+      ro_util: 'Utilization', ro_remain: 'Remaining',
+      pipe_to_sbr: 'TO SBR', ret_lbl: 'RETURN LINE',
+
+      stp1: '1  Choose input type', stp2: '2  Enter the value', stp3: '3  Press UPDATE DASHBOARD',
+      in_design: 'Design {v} m\u00b3',
+      in_mode_free: 'Free Space (cm)', in_mode_avail: 'Available Volume (m\u00b3)',
+      in_tip_free: 'Free Space = distance from the tank rim down to the water surface.',
+      in_tip_avail: 'Available Volume = space still free to receive water.',
+      in_range: 'Allowed range: {min} \u2013 {max} {unit}',
+      pv: 'Preview \u2192 Available {avail} m\u00b3 \u00b7 Filled {util}%',
+      pending: '\u26A0 Values changed \u2014 press UPDATE DASHBOARD to apply.',
+      b_update: 'Update Dashboard', b_save: 'Save Record', b_png: 'Export PNG', b_csv: 'Export CSV',
+      b_print: 'Print Report', b_reset: 'Reset', ctl_auto: 'Auto-save a record on every UPDATE',
+
+      g_used: 'UTILIZED', g_sys: 'Total System', g_foot: 'Available {a} / {d} m\u00b3',
+
+      rpt_img: 'Download Report Image', rpt_csv: 'Download Report CSV',
+      c_tank: 'Tank', c_free: 'Free Space (cm)', c_depth: 'Water Depth (m)',
+      c_vol: 'Current Volume (m\u00b3)', c_avail: 'Available Volume (m\u00b3)',
+      c_util: 'Utilization', c_remain: 'Remaining', c_status: 'Status', c_total: 'TOTAL SYSTEM',
+      rpt_meta: 'Report date: {date} \u2022 Time: {time}',
+      rpt_main: 'At <b>{time}</b>, total available emergency storage volume was <b>{avail} m\u00b3</b>. System utilization was <b>{util}%</b>. {status}',
+      rpt_tank: '<b>{name}</b>: {avail} m\u00b3 available, {util}% utilized ({status}).',
+      rpt_rec: 'Recommended action:',
+      rpt_s_critical: 'Emergency storage status is <b style="color:{c}">CRITICAL</b>; remaining emergency capacity is severely limited.',
+      rpt_s_high: 'Emergency storage status entered the <b style="color:{c}">WARNING (HIGH)</b> range.',
+      rpt_s_medium: 'Emergency storage status remained within normal operating range, with elevated utilization.',
+      rpt_s_low: 'Emergency storage status remained within normal operating range.',
+      rpt_r_critical: 'Immediate action required: reduce or divert non-essential inflow, notify the shift supervisor and EHS manager, and prepare contingency discharge/transfer plans.',
+      rpt_r_high: 'Increase monitoring frequency, review upstream flow reduction options, and inform the plant manager.',
+      rpt_r_medium: 'Continue routine monitoring and keep the emergency response team on standby.',
+      rpt_r_low: 'No action required. Continue routine monitoring.',
+
+      al_h_ok: 'SYSTEM NORMAL', al_h_warning: 'WARNING \u2014 HIGH LEVEL', al_h_critical: 'CRITICAL \u2014 STORAGE ALMOST FULL',
+      al_d_ok: 'All tanks have enough free space.',
+      al_a_ok: 'No action required. Continue routine monitoring.',
+      al_a_warning: 'Action: increase monitoring and prepare to reduce inflow.',
+      al_a_critical: 'Action: reduce / divert inflow now and notify supervisor and EHS.',
+      al_item: '{name} at {util}% ({status})', al_sys: 'System utilization {util}% ({risk})',
+
+      tr_24: 'Last 24 Hours', tr_7: 'Last 7 Days', tr_30: 'Last 30 Days', tr_param: 'Parameter:',
+      tr_m_level: 'Level / Utilization (%)', tr_m_vol: 'Current Volume (m\u00b3)', tr_m_avail: 'Available Volume (m\u00b3)',
+      tr_empty: 'No records in this period.<br>Use SAVE RECORD to log data.',
+      tr_nolib: 'Chart.js library could not be loaded (check internet connection).',
+      tr_warn: 'Warning {n}%', tr_crit: 'Critical {n}%',
+
+      th_med: 'Medium risk starts at (%)', th_warn: 'Warning / High starts at (%)', th_crit: 'Critical starts at (%)',
+      th_apply: 'Apply', th_def: 'Defaults',
+      th_note: 'Rule: 0 < Medium < Warning < Critical \u2264 100. Default bands: Normal 0\u201370 % (green), Warning 70\u201390 % (orange), Critical 90\u2013100 % (red). Settings are stored in this browser.',
+
+      hs_dt: 'Date / Time', hs_level: 'Level (%)', hs_clear: 'Clear History', hs_none: 'No records saved yet.',
+      hs_note: '{n} record rows stored in this browser (retention 35 days). Showing latest {k}.',
+
+      ft_h: 'Basic Calculation',
+      ft_type: 'Type', ft_area: 'Plan Area (m\u00b2)', ft_depth: 'Calc. Depth (m)',
+      ft_design: 'Design Volume (m\u00b3)', ft_minfs: 'Min. Free Space (cm)',
+      ft_b1: 'Circular tanks: Area = \u03c0 \u00d7 r\u00b2. Rectangular basin: Area = L \u00d7 W.',
+      ft_b2: 'Water Depth = Tank Depth \u2212 Free Space; Current Volume = Area \u00d7 Water Depth; Available Volume = Design Capacity \u2212 Current Volume.',
+      ft_b3: 'Inputs are limited to the engineering range: no negative values and no volume above design capacity.',
+      ft_b4: 'Emergency Tank 1 calculation depth is the design-equivalent depth (Design Volume \u00f7 Area), which accounts for the conical bottom (outlet depth 3.38 m, centre depth 6.26 m).',
+      ft_b5: 'Values depend on operator entry or level instrument reading and must be verified against field instrumentation before operational decisions.',
+      ft_doc: 'ESCMS Dashboard \u2022 Document: ESCMS-DASH-001 \u2022 Rev. 1.4', ft_gen: 'Report generated:',
+
+      v_nan: 'Please enter a numeric value.', v_retained: 'Previous value retained.',
+      v_neg: 'Negative values are not permitted. Set to {min} {unit}.',
+      v_low: 'Below engineering minimum ({min} {unit}): tank cannot exceed design volume. Value limited.',
+      v_high_free: 'Exceeds tank depth ({max} {unit}). Value limited.',
+      v_high_avail: 'Exceeds design volume ({max} {unit}). Value limited.',
+
+      t_updated: 'Dashboard updated.', t_saved: 'Record saved ({n} tanks).',
+      t_storefail: 'Could not write to browser storage.',
+      t_nohist: 'No saved records to export. Use SAVE RECORD first.', t_histexp: 'History CSV exported.',
+      t_repcsv: 'Report CSV downloaded.', t_imggen: 'Generating image\u2026', t_imgok: 'Image exported.',
+      t_imgfail: 'PNG export failed: {m}', t_nolib: 'html2canvas library could not be loaded (check internet connection).',
+      t_th_bad: 'Invalid thresholds. Required: 0 < Medium < Warning < Critical \u2264 100.',
+      t_th_ok: 'Thresholds applied.', t_th_def: 'Default thresholds restored.',
+      t_fs_block: 'Full screen was blocked by the browser.', t_fs_none: 'Full screen is not supported by this browser.',
+      t_reset: 'Dashboard reset to default values.', t_hist_empty: 'History is already empty.', t_hist_clear: 'History cleared.',
+      c_reset: 'Reset all tank inputs to default values?\n(Saved history records are kept.)',
+      c_clear: 'Delete ALL saved history records? This cannot be undone.',
+
+      csv_title: 'ABNORMAL STORAGE MONITORING DASHBOARD - REPORT', csv_gen: 'Generated',
+      csv_t_avail: 'Total Available Capacity (m3)', csv_t_occ: 'Total Occupied Volume (m3)',
+      csv_t_util: 'System Utilization (%)', csv_t_risk: 'Risk Level',
+      csvh_dt: 'Date Time', csvh_tank: 'Tank Name', csvh_level: 'Level (%)', csvh_vol: 'Current Volume (m3)',
+      csvh_avail: 'Available Volume (m3)', csvh_free: 'Free Space (cm)', csvh_depth: 'Water Depth (m)',
+      csvh_util: 'Utilization (%)', csvh_remain: 'Remaining (%)', csvh_status: 'Status',
+      cl_on: 'Cloud Sync', cl_off: 'Local Only', cl_err: 'Sync Error', cl_busy: 'Syncing...',
+      cl_key: 'Enter the EDIT KEY to save changes to the shared dashboard:',
+      cl_denied: 'Not saved to cloud - edit key required.', cl_fail: 'Cloud save failed - data kept in this browser only.',
+      cl_loaded: 'Loaded latest shared data from cloud.', cl_remote: 'Dashboard updated with new data from another user.'
+    },
+
+    th: {
+      h_sub: 'การบริหารจัดการความจุถังกักเก็บฉุกเฉิน',
+      h_last: 'อัปเดตล่าสุด:',
+      btn_light: 'โหมดสว่าง', btn_dark: 'โหมดมืด', btn_fs: 'เต็มจอ', btn_fs_exit: 'ออกจากเต็มจอ',
+      aria_theme: 'สลับโหมดมืด/สว่าง', aria_fs: 'สลับการแสดงเต็มจอ', aria_lang: 'ภาษา',
+      aria_level: 'ตัวบ่งชี้ระดับ', aria_mode: 'โหมดการป้อนค่า', aria_value: 'ค่า', aria_gauge: 'มาตรวัดความจุ',
+
+      kpi_avail: 'ความจุคงเหลือรวม', kpi_occ: 'ปริมาตรที่ใช้งานรวม',
+      kpi_util: 'การใช้งานระบบ', kpi_risk: 'ระดับความเสี่ยงการกักเก็บ',
+      kpi_avail_sub: 'ฉุกเฉิน 1 {a} + ฉุกเฉิน 2 {b} + SBR {c} m\u00b3',
+      kpi_occ_sub: 'จากปริมาตรออกแบบรวม {total} m\u00b3',
+      risk_low: 'ต่ำ', risk_medium: 'ปานกลาง', risk_high: 'สูง', risk_critical: 'วิกฤต',
+      rk_low: 'ปลอดภัย \u2014 พื้นที่ว่างเหลือมาก', rk_medium: 'เฝ้าดู \u2014 พื้นที่ว่างเริ่มลดลง',
+      rk_high: 'เฝ้าระวัง \u2014 พื้นที่ว่างเหลือน้อย', rk_critical: 'อันตราย \u2014 ใกล้เต็ม',
+      st_normal: 'ปกติ', st_warning: 'เฝ้าระวัง', st_critical: 'วิกฤต',
+
+      sec_flow: 'แผนผังกระบวนการ \u2014 ระบบถังกักเก็บฉุกเฉิน',
+      sec_ctl: 'การป้อนข้อมูลและแผงควบคุมการปฏิบัติงาน',
+      sec_gauge: 'มาตรวัดความจุถัง',
+      sec_report: 'สรุปรายงานอัตโนมัติ',
+      sec_trend: 'ติดตามแนวโน้มย้อนหลัง',
+      sec_th: 'ตั้งค่าเกณฑ์แจ้งเตือน',
+      sec_hist: 'บันทึกที่เก็บไว้ล่าสุด',
+
+      lg_normal: 'ปกติ', lg_warning: 'เฝ้าระวัง', lg_critical: 'วิกฤต',
+      lg_hint: 'ค่า % = ถังเต็มแค่ไหน ยิ่งสูง = พื้นที่ว่างเหลือน้อย',
+
+      tn_t1: 'ถังฉุกเฉิน 1', tn_t3: 'ถัง SBR', tn_t2: 'ถังฉุกเฉิน 2',
+      type_circ: 'ถังตกตะกอนทรงกลม', type_rect: 'บ่อสี่เหลี่ยม',
+      spec_t1: 'ถังตกตะกอนทรงกลม \u2022 \u00d8 46.0 m (R 23.0 m) \u2022 ความลึกขอบ 3.38 m / ความลึกกลาง 6.26 m \u2022 ออกแบบ 7,000 m\u00b3',
+      spec_t2: 'ถังตกตะกอนทรงกลม \u2022 \u00d8 45.7 m (R 22.85 m) \u2022 ความลึกขอบ 4.20 m \u2022 ออกแบบ 6,800 m\u00b3',
+      spec_t3: 'บ่อสี่เหลี่ยม \u2022 81.0 m \u00d7 62.7 m \u2022 ความลึก 3.77 m \u2022 ออกแบบ 19,000 m\u00b3',
+      ro_filled: 'ระดับน้ำ', ro_avail_key: 'ปริมาตรว่างที่รับน้ำได้',
+      ro_free: 'ช่องว่างเหลือ', ro_depth: 'ความลึกน้ำ', ro_vol: 'ปริมาตรปัจจุบัน',
+      ro_util: 'การใช้งาน', ro_remain: 'ว่าง',
+      pipe_to_sbr: 'ไป SBR', ret_lbl: 'ท่อน้ำกลับ',
+
+      stp1: '1  เลือกวิธีกรอก', stp2: '2  พิมพ์ค่า', stp3: '3  กด "อัปเดตแดชบอร์ด"',
+      in_design: 'ออกแบบ {v} m\u00b3',
+      in_mode_free: 'ช่องว่าง (cm)', in_mode_avail: 'ปริมาตรคงเหลือ (m\u00b3)',
+      in_tip_free: 'ช่องว่าง = ระยะจากขอบถังลงมาถึงผิวน้ำ',
+      in_tip_avail: 'ปริมาตรคงเหลือ = พื้นที่ว่างที่ยังรับน้ำได้',
+      in_range: 'ช่วงที่อนุญาต: {min} \u2013 {max} {unit}',
+      pv: 'ตัวอย่างผลลัพธ์ \u2192 ว่าง {avail} m\u00b3 \u00b7 เต็ม {util}%',
+      pending: '\u26A0 มีการแก้ไขค่า \u2014 กด "อัปเดตแดชบอร์ด" เพื่อใช้ค่าใหม่',
+      b_update: 'อัปเดตแดชบอร์ด', b_save: 'บันทึกข้อมูล', b_png: 'ส่งออก PNG', b_csv: 'ส่งออก CSV',
+      b_print: 'พิมพ์รายงาน', b_reset: 'รีเซ็ต', ctl_auto: 'บันทึกข้อมูลอัตโนมัติทุกครั้งที่กดอัปเดต',
+
+      g_used: 'ใช้งาน', g_sys: 'ระบบรวม', g_foot: 'คงเหลือ {a} / {d} m\u00b3',
+
+      rpt_img: 'ดาวน์โหลดรูปรายงาน', rpt_csv: 'ดาวน์โหลด CSV รายงาน',
+      c_tank: 'ถัง', c_free: 'ช่องว่างเหลือ (cm)', c_depth: 'ความลึกน้ำ (m)',
+      c_vol: 'ปริมาตรปัจจุบัน (m\u00b3)', c_avail: 'ปริมาตรคงเหลือ (m\u00b3)',
+      c_util: 'การใช้งาน', c_remain: 'คงเหลือ', c_status: 'สถานะ', c_total: 'ระบบรวม',
+      rpt_meta: 'วันที่รายงาน: {date} \u2022 เวลา: {time}',
+      rpt_main: 'เมื่อเวลา <b>{time} น.</b> ปริมาตรถังกักเก็บฉุกเฉินที่เหลือรวมเท่ากับ <b>{avail} m\u00b3</b> การใช้งานระบบอยู่ที่ <b>{util}%</b> {status}',
+      rpt_tank: '<b>{name}</b>: คงเหลือ {avail} m\u00b3 ใช้งาน {util}% ({status})',
+      rpt_rec: 'ข้อเสนอแนะ:',
+      rpt_s_critical: 'สถานะถังกักเก็บฉุกเฉินอยู่ในระดับ <b style="color:{c}">วิกฤต</b> ความจุสำรองคงเหลือน้อยมาก',
+      rpt_s_high: 'สถานะถังกักเก็บฉุกเฉินเข้าสู่ช่วง <b style="color:{c}">เฝ้าระวัง (สูง)</b>',
+      rpt_s_medium: 'สถานะถังกักเก็บฉุกเฉินยังอยู่ในช่วงการทำงานปกติ แต่มีการใช้งานเพิ่มสูงขึ้น',
+      rpt_s_low: 'สถานะถังกักเก็บฉุกเฉินยังอยู่ในช่วงการทำงานปกติ',
+      rpt_r_critical: 'ต้องดำเนินการทันที: ลดหรือเบี่ยงน้ำเข้าที่ไม่จำเป็น แจ้งหัวหน้ากะและผู้จัดการ EHS และเตรียมแผนระบายหรือถ่ายเทฉุกเฉิน',
+      rpt_r_high: 'เพิ่มความถี่ในการติดตาม พิจารณาแนวทางลดปริมาณน้ำเข้าจากต้นทาง และแจ้งผู้จัดการโรงงาน',
+      rpt_r_medium: 'ติดตามตามปกติต่อไป และให้ทีมตอบโต้เหตุฉุกเฉินเตรียมพร้อม',
+      rpt_r_low: 'ไม่ต้องดำเนินการเพิ่มเติม ติดตามตามปกติต่อไป',
+
+      al_h_ok: 'ระบบปกติ', al_h_warning: 'เฝ้าระวัง \u2014 ระดับน้ำสูง', al_h_critical: 'วิกฤต \u2014 ถังกักเก็บใกล้เต็ม',
+      al_d_ok: 'ทุกถังยังมีพื้นที่ว่างเพียงพอ',
+      al_a_ok: 'ไม่ต้องดำเนินการ ติดตามตามปกติ',
+      al_a_warning: 'ให้เพิ่มการเฝ้าติดตามและเตรียมลดน้ำเข้า',
+      al_a_critical: 'ให้ลด/เบี่ยงน้ำเข้าทันที และแจ้งหัวหน้ากะและ EHS',
+      al_item: '{name} ที่ {util}% ({status})', al_sys: 'การใช้งานระบบ {util}% ({risk})',
+
+      tr_24: '24 ชั่วโมงล่าสุด', tr_7: '7 วันล่าสุด', tr_30: '30 วันล่าสุด', tr_param: 'พารามิเตอร์:',
+      tr_m_level: 'ระดับ / การใช้งาน (%)', tr_m_vol: 'ปริมาตรปัจจุบัน (m\u00b3)', tr_m_avail: 'ปริมาตรคงเหลือ (m\u00b3)',
+      tr_empty: 'ไม่มีข้อมูลในช่วงเวลานี้<br>กด "บันทึกข้อมูล" เพื่อเก็บข้อมูล',
+      tr_nolib: 'ไม่สามารถโหลดไลบรารี Chart.js ได้ (ตรวจสอบการเชื่อมต่ออินเทอร์เน็ต)',
+      tr_warn: 'เฝ้าระวัง {n}%', tr_crit: 'วิกฤต {n}%',
+
+      th_med: 'ความเสี่ยงปานกลางเริ่มที่ (%)', th_warn: 'เฝ้าระวัง / สูง เริ่มที่ (%)', th_crit: 'วิกฤตเริ่มที่ (%)',
+      th_apply: 'ใช้ค่า', th_def: 'ค่าเริ่มต้น',
+      th_note: 'กฎ: 0 < ปานกลาง < เฝ้าระวัง < วิกฤต \u2264 100 ช่วงเริ่มต้น: ปกติ 0\u201370 % (เขียว), เฝ้าระวัง 70\u201390 % (ส้ม), วิกฤต 90\u2013100 % (แดง) การตั้งค่าจะถูกเก็บไว้ในเบราว์เซอร์นี้',
+
+      hs_dt: 'วันที่ / เวลา', hs_level: 'ระดับ (%)', hs_clear: 'ล้างประวัติ', hs_none: 'ยังไม่มีบันทึก',
+      hs_note: 'เก็บข้อมูล {n} แถวในเบราว์เซอร์นี้ (เก็บไว้ 35 วัน) แสดง {k} รายการล่าสุด',
+
+      ft_h: 'การคำนวณเบื้องต้น',
+      ft_type: 'ประเภท', ft_area: 'พื้นที่ผิว (m\u00b2)', ft_depth: 'ความลึกที่ใช้คำนวณ (m)',
+      ft_design: 'ปริมาตรออกแบบ (m\u00b3)', ft_minfs: 'ช่องว่างต่ำสุด (cm)',
+      ft_b1: 'ถังทรงกลม: พื้นที่ = \u03c0 \u00d7 r\u00b2 ส่วนบ่อสี่เหลี่ยม: พื้นที่ = ยาว \u00d7 กว้าง',
+      ft_b2: 'ความลึกน้ำ = ความลึกถัง \u2212 ช่องว่างเหลือ; ปริมาตรปัจจุบัน = พื้นที่ \u00d7 ความลึกน้ำ; ปริมาตรคงเหลือ = ความจุออกแบบ \u2212 ปริมาตรปัจจุบัน',
+      ft_b3: 'ค่าที่ป้อนถูกจำกัดอยู่ในช่วงทางวิศวกรรม: ไม่รับค่าติดลบ และปริมาตรต้องไม่เกินความจุออกแบบ',
+      ft_b4: 'ความลึกที่ใช้คำนวณของถังฉุกเฉิน 1 เป็นความลึกเทียบเท่าตามการออกแบบ (ปริมาตรออกแบบ \u00f7 พื้นที่) ซึ่งรวมผลของก้นถังทรงกรวยแล้ว (ความลึกขอบ 3.38 m ความลึกกลาง 6.26 m)',
+      ft_b5: 'ค่าที่แสดงขึ้นกับการป้อนของผู้ปฏิบัติงานหรือค่าจากเครื่องวัดระดับ ต้องตรวจสอบกับเครื่องมือวัดภาคสนามก่อนตัดสินใจเชิงปฏิบัติการ',
+      ft_doc: 'แดชบอร์ด ESCMS \u2022 เอกสาร: ESCMS-DASH-001 \u2022 Rev. 1.4', ft_gen: 'สร้างรายงานเมื่อ:',
+
+      v_nan: 'กรุณากรอกค่าตัวเลข', v_retained: 'คงค่าเดิมไว้',
+      v_neg: 'ไม่อนุญาตให้ใช้ค่าติดลบ ตั้งเป็น {min} {unit}',
+      v_low: 'ต่ำกว่าค่าต่ำสุดทางวิศวกรรม ({min} {unit}) ถังต้องไม่เกินปริมาตรออกแบบ ปรับค่าให้อัตโนมัติ',
+      v_high_free: 'เกินความลึกถัง ({max} {unit}) ปรับค่าให้อัตโนมัติ',
+      v_high_avail: 'เกินปริมาตรออกแบบ ({max} {unit}) ปรับค่าให้อัตโนมัติ',
+
+      t_updated: 'อัปเดตแดชบอร์ดแล้ว', t_saved: 'บันทึกข้อมูลแล้ว ({n} ถัง)',
+      t_storefail: 'ไม่สามารถเขียนข้อมูลลงที่เก็บของเบราว์เซอร์ได้',
+      t_nohist: 'ไม่มีข้อมูลที่บันทึกไว้ให้ส่งออก กรุณากด "บันทึกข้อมูล" ก่อน', t_histexp: 'ส่งออก CSV ประวัติแล้ว',
+      t_repcsv: 'ดาวน์โหลด CSV รายงานแล้ว', t_imggen: 'กำลังสร้างรูปภาพ\u2026', t_imgok: 'ส่งออกรูปภาพแล้ว',
+      t_imgfail: 'ส่งออก PNG ไม่สำเร็จ: {m}', t_nolib: 'ไม่สามารถโหลดไลบรารี html2canvas ได้ (ตรวจสอบการเชื่อมต่ออินเทอร์เน็ต)',
+      t_th_bad: 'เกณฑ์ไม่ถูกต้อง ต้องเป็น 0 < ปานกลาง < เฝ้าระวัง < วิกฤต \u2264 100',
+      t_th_ok: 'ใช้เกณฑ์ใหม่แล้ว', t_th_def: 'คืนค่าเกณฑ์เริ่มต้นแล้ว',
+      t_fs_block: 'เบราว์เซอร์ปฏิเสธการแสดงเต็มจอ', t_fs_none: 'เบราว์เซอร์นี้ไม่รองรับการแสดงเต็มจอ',
+      t_reset: 'รีเซ็ตแดชบอร์ดเป็นค่าเริ่มต้นแล้ว', t_hist_empty: 'ประวัติว่างอยู่แล้ว', t_hist_clear: 'ล้างประวัติแล้ว',
+      c_reset: 'รีเซ็ตค่าที่ป้อนของทุกถังเป็นค่าเริ่มต้น?\n(ประวัติที่บันทึกไว้จะยังคงอยู่)',
+      c_clear: 'ลบประวัติที่บันทึกไว้ทั้งหมด? ไม่สามารถย้อนกลับได้',
+
+      csv_title: 'รายงานแดชบอร์ดติดตามการกักเก็บผิดปกติ', csv_gen: 'สร้างเมื่อ',
+      csv_t_avail: 'ความจุคงเหลือรวม (m3)', csv_t_occ: 'ปริมาตรที่ใช้งานรวม (m3)',
+      csv_t_util: 'การใช้งานระบบ (%)', csv_t_risk: 'ระดับความเสี่ยง',
+      csvh_dt: 'วันที่ เวลา', csvh_tank: 'ชื่อถัง', csvh_level: 'ระดับ (%)', csvh_vol: 'ปริมาตรปัจจุบัน (m3)',
+      csvh_avail: 'ปริมาตรคงเหลือ (m3)', csvh_free: 'ช่องว่างเหลือ (cm)', csvh_depth: 'ความลึกน้ำ (m)',
+      csvh_util: 'การใช้งาน (%)', csvh_remain: 'คงเหลือ (%)', csvh_status: 'สถานะ',
+      cl_on: 'ซิงก์คลาวด์', cl_off: 'เฉพาะเครื่องนี้', cl_err: 'ซิงก์ผิดพลาด', cl_busy: 'กำลังซิงก์...',
+      cl_key: 'กรุณาใส่รหัสแก้ไข (EDIT KEY) เพื่อบันทึกข้อมูลไปยังแดชบอร์ดกลาง:',
+      cl_denied: 'ยังไม่บันทึกขึ้นคลาวด์ - ต้องใช้รหัสแก้ไข', cl_fail: 'บันทึกขึ้นคลาวด์ไม่สำเร็จ - ข้อมูลเก็บไว้ในเบราว์เซอร์นี้เท่านั้น',
+      cl_loaded: 'โหลดข้อมูลล่าสุดจากคลาวด์แล้ว', cl_remote: 'แดชบอร์ดอัปเดตด้วยข้อมูลใหม่จากผู้ใช้อื่น'
+    }
+  };
+
+  /** Current language: saved choice, otherwise browser language (Thai -> th, else en) */
+  let LANG = (function () {
+    const s = store.get(STORAGE.lang, null);
+    if (s === 'th' || s === 'en') return s;
+    return /^th/i.test(navigator.language || '') ? 'th' : 'en';
+  })();
+
+  /** Translator: tr('key', {param:value}) */
+  function tr(key, p) {
+    const s = (I18N[LANG] && I18N[LANG][key] !== undefined) ? I18N[LANG][key]
+            : (I18N.en[key] !== undefined ? I18N.en[key] : key);
+    return p ? s.replace(/\{(\w+)\}/g, (m, k) => (k in p ? p[k] : m)) : s;
+  }
+  const tname = t => tr('tn_' + t.id);
+  const stLabel = st => tr('st_' + st);
+  const riskLabel = r => tr('risk_' + r.key);
+
+  /** Toast notification */
+  function toast(msg, type) {
+    const el = document.createElement('div');
+    el.className = 'toast ' + (type || 'info');
+    el.textContent = msg;
+    $('#toasts').appendChild(el);
+    setTimeout(() => { el.style.opacity = '0'; el.style.transition = 'opacity .4s'; }, 4200);
+    setTimeout(() => el.remove(), 4700);
+  }
+
+  /** Fill every element that carries a data-i18n* attribute */
+  function applyStatic() {
+    $$('[data-i18n]').forEach(el => { el.textContent = tr(el.dataset.i18n); });
+    $$('[data-i18n-html]').forEach(el => { el.innerHTML = tr(el.dataset.i18nHtml); });
+    $$('[data-i18n-aria]').forEach(el => el.setAttribute('aria-label', tr(el.dataset.i18nAria)));
+    $$('[data-tank-name]').forEach(el => { el.textContent = tname(TANK[el.dataset.tankName]); });
+    $$('[data-tank-spec]').forEach(el => { el.textContent = tr('spec_' + el.dataset.tankSpec); });
+    $$('[data-aria-tank]').forEach(el => {
+      el.setAttribute('aria-label', tname(TANK[el.dataset.ariaTank]) + ' ' + tr(el.dataset.ariaKey));
+    });
+  }
+
+  /* Runtime state */
+  let state = loadState();
+  let th = loadThresholds();
+  let records = store.get(STORAGE.records, []);
+  if (!Array.isArray(records)) records = [];
+  const calc = {};
+  const warnState = {};
+  let lastUpdate = new Date();
+
+  function loadState() { return parseState(store.get(STORAGE.state, null)); }
+  function parseState(s) {
+    const out = JSON.parse(JSON.stringify(DEFAULT_STATE));
+    if (s && typeof s === 'object') {
+      TANKS.forEach(t => {
+        const e = s[t.id];
+        if (e && (e.mode === 'free' || e.mode === 'avail') && isFinite(e.value)) out[t.id] = { mode: e.mode, value: +e.value };
+      });
+    }
+    return out;
+  }
+  function loadThresholds() { return parseThresholds(store.get(STORAGE.thresholds, null)); }
+  function parseThresholds(s) {
+    if (s && s.med > 0 && s.med < s.warn && s.warn < s.crit && s.crit <= 100) return { med: +s.med, warn: +s.warn, crit: +s.crit };
+    return Object.assign({}, DEFAULT_TH);
+  }
+
+  /* ==========================================================================
+     CLOUD SYNC (Cloudflare Pages Functions + KV)
+     - On load: read shared data from /api/data. If it works, the dashboard is
+       in "Cloud Sync" mode and every UPDATE / SAVE / threshold change / clear
+       is written to the server so all users see the same levels.
+     - If /api is not reachable the page keeps working with localStorage only.
+     - Writes may require an EDIT KEY (set as EDIT_KEY secret in Cloudflare).
+     ========================================================================== */
+  const CLOUD = { on: false, key: store.get(STORAGE.editKey, ''), seen: 0, busy: 0 };
+
+  async function api(method, path, body) {
+    const headers = { 'content-type': 'application/json' };
+    if (CLOUD.key) headers['X-Edit-Key'] = CLOUD.key;
+    try {
+      const res = await fetch(API_BASE + path, {
+        method, headers, cache: 'no-store',
+        body: body === undefined ? undefined : JSON.stringify(body)
+      });
+      const isJSON = (res.headers.get('content-type') || '').indexOf('application/json') >= 0;
+      const data = isJSON ? await res.json().catch(() => null) : null;
+      return { ok: res.ok && isJSON, status: res.status, data };
+    } catch (e) {
+      return { ok: false, status: 0, data: null };
+    }
+  }
+
+  function setSync(mode) {
+    const b = $('#btnSync');
+    if (!b) return;
+    const icon = { on: '&#9729;', off: '&#128190;', err: '&#9888;', busy: '&#8635;' }[mode] || '';
+    b.innerHTML = icon + ' ' + tr('cl_' + mode);
+    b.dataset.sync = mode;
+  }
+
+  /** Write to the server. Asks for the edit key once if the server requires it. */
+  async function cloudWrite(method, path, body) {
+    if (!CLOUD.on) return true;
+    CLOUD.busy++; setSync('busy');
+    const usedKey = CLOUD.key;
+    let r = await api(method, path, body);
+    if (r.status === 401) {
+      if (CLOUD.key && CLOUD.key !== usedKey) {
+        r = await api(method, path, body);            // key was just entered by a parallel save
+      } else if (Date.now() - (CLOUD.deniedAt || 0) > 3000) {
+        const k = prompt(tr('cl_key'), '');
+        if (k) {
+          CLOUD.key = k.trim(); store.set(STORAGE.editKey, CLOUD.key);
+          r = await api(method, path, body);
+        }
+      }
+      if (r.status === 401) {
+        CLOUD.deniedAt = Date.now();
+        CLOUD.key = ''; store.del(STORAGE.editKey);
+        CLOUD.busy--; setSync('err'); toast(tr('cl_denied'), 'err'); return false;
+      }
+    }
+    CLOUD.busy--;
+    if (!r.ok) { setSync('err'); toast(tr('cl_fail'), 'err'); return false; }
+    if (r.data && r.data.updatedAt) CLOUD.seen = r.data.updatedAt;
+    if (!CLOUD.busy) setSync('on');
+    return true;
+  }
+
+  /** Read shared data and apply it to the dashboard. */
+  async function cloudLoad(opt) {
+    opt = opt || {};
+    const r = await api('GET', '/data');
+    if (!r.ok || !r.data) { setSync(CLOUD.on ? 'err' : 'off'); return; }
+    const first = !CLOUD.on;
+    CLOUD.on = true;
+    const d = r.data;
+
+    // Brand-new KV store: seed it with what this browser already has.
+    if (first && !d.state) {
+      await cloudWrite('PUT', '/state', { state });
+      await cloudWrite('PUT', '/thresholds', { thresholds: th });
+      if (records.length) await cloudWrite('POST', '/records', { records });
+      setSync('on');
+      return;
+    }
+
+    if (!first && !opt.force && d.updatedAt === CLOUD.seen) { if (!CLOUD.busy) setSync('on'); return; }
+    CLOUD.seen = d.updatedAt || 0;
+
+    state = parseState(d.state);
+    th = parseThresholds(d.thresholds);
+    records = Array.isArray(d.records) ? d.records : [];
+    store.set(STORAGE.state, state);
+    store.set(STORAGE.thresholds, th);
+    store.set(STORAGE.records, records);
+
+    TANKS.forEach(t => { setInputFromState(t); warnState[t.id] = null; renderWarn(t); });
+    fillThresholdInputs();
+    updateDashboard({ silent: true, noSave: true, noCloud: true });
+    renderHistory(); refreshCharts();
+    setSync('on');
+    if (opt.force) toast(tr('cl_loaded'), 'ok');
+    else if (!first) toast(tr('cl_remote'), 'info');
+  }
+
+  /** Poll for changes made by other users (skipped while someone is typing). */
+  function cloudPoll() {
+    if (!CLOUD.on || CLOUD.busy || document.hidden) return;
+    if (!$('#pendingMsg').classList.contains('hidden')) return;
+    cloudLoad();
+  }
+
+  /* ==========================================================================
+     4. ENGINEERING CALCULATIONS & VALIDATION
+     ========================================================================== */
+  function limits(t, mode) {
+    return mode === 'free'
+      ? { min: t.fsMin * 100, max: t.depth * 100, unit: 'cm' }
+      : { min: 0, max: t.design, unit: 'm\u00b3' };
+  }
+
+  /** Validate operator input; value is limited to the allowed range */
+  function validate(t, mode, raw) {
+    if (raw === null || raw === undefined || !isFinite(raw)) return { ok: false, key: 'v_nan', p: {} };
+    const lim = limits(t, mode);
+    const TOL = 0.01;
+    const p = { min: fmt(lim.min, 1), max: fmt(lim.max, 1), unit: lim.unit };
+    let v = raw, key = '';
+    if (v < 0) {
+      v = lim.min; key = 'v_neg';
+    } else if (v < lim.min - TOL) {
+      v = lim.min; key = 'v_low';
+    } else if (v > lim.max + TOL) {
+      v = lim.max; key = mode === 'free' ? 'v_high_free' : 'v_high_avail';
+    }
+    return { ok: true, value: clamp(v, lim.min, lim.max), key, p };
+  }
+
+  /** Core calculation: Water Depth = Depth - Free Space; Volume = Area x Water Depth;
+      Available = Design - Volume (never negative, never above design). */
+  function compute(t, mode, value) {
+    let vol;
+    if (mode === 'free') {
+      const freeCm = clamp(value, t.fsMin * 100, t.depth * 100);
+      vol = t.area * (t.depth - freeCm / 100);
+    } else {
+      vol = t.design - clamp(value, 0, t.design);
+    }
+    vol = clamp(vol, 0, t.design);
+    const avail = t.design - vol;
+    const waterDepth = vol / t.area;
+    const freeCm = (t.depth - waterDepth) * 100;
+    const util = (vol / t.design) * 100;
+    return { vol, avail, waterDepth, freeCm, util, remain: 100 - util };
+  }
+
+  function statusOf(p) { return p >= th.crit ? 'critical' : (p >= th.warn ? 'warning' : 'normal'); }
+  function riskOf(p) {
+    if (p >= th.crit) return { key: 'critical', color: COLORS.critical };
+    if (p >= th.warn) return { key: 'high',     color: COLORS.high };
+    if (p >= th.med)  return { key: 'medium',   color: COLORS.medium };
+    return { key: 'low', color: COLORS.low };
+  }
+
+  function getSystem() {
+    let vol = 0, avail = 0;
+    TANKS.forEach(t => { vol += calc[t.id].vol; avail += calc[t.id].avail; });
+    const util = vol / TOTAL_DESIGN * 100;
+    return { vol, avail, util, risk: riskOf(util) };
+  }
+
+  /* ==========================================================================
+     5. UI CONSTRUCTION
+     ========================================================================== */
+  function tankHTML(t) {
+    const rect = t.shape === 'rect';
+    return `
+    <div class="tank-block st-normal ${rect ? 'wide' : ''}" id="block-${t.id}">
+      <div class="tank-head"><span class="tank-name" data-tank-name="${t.id}"></span><span class="badge" id="badge-${t.id}">NORMAL</span></div>
+      <div class="tank ${rect ? 'tank-rect' : 'tank-circle'}" id="tank-${t.id}" role="img" data-aria-tank="${t.id}" data-aria-key="aria_level">
+        <div class="water" id="water-${t.id}"></div>
+        <div class="th-line w" id="thw-${t.id}"><i></i></div>
+        <div class="th-line c" id="thc-${t.id}"><i></i></div>
+        <div class="tank-content">
+          <div class="pct" id="pct-${t.id}">0%</div>
+          <div class="pct-label" data-i18n="ro_filled"></div>
+        </div>
+      </div>
+      <div class="tank-info">
+        <div class="ti key"><span data-i18n="ro_avail_key"></span><b id="av-${t.id}">--</b><em id="rm-${t.id}"></em></div>
+        <div class="ti"><span data-i18n="ro_free"></span><b id="fs-${t.id}">--</b></div>
+        <div class="ti"><span data-i18n="ro_depth"></span><b id="wd-${t.id}">--</b></div>
+        <div class="ti"><span data-i18n="ro_vol"></span><b id="vol-${t.id}">--</b></div>
+        <div class="ti"><span data-i18n="ro_util"></span><b id="ut-${t.id}">--</b></div>
+      </div>
+      <div class="tank-spec" data-tank-spec="${t.id}"></div>
+    </div>`;
+  }
+
+  /** Process flow as the P&ID sketch: Tank 1 to SBR, Tank 2 to SBR, return line underneath */
+  function buildFlow() {
+    const pipe = cls => '<div class="pipe-col" aria-hidden="true"><div class="pipe-label" data-i18n="pipe_to_sbr"></div><div class="pipe ' + cls + '"></div></div>';
+    $('#flow').innerHTML =
+      tankHTML(TANK.t1) + pipe('fwd') + tankHTML(TANK.t3) + pipe('rev') + tankHTML(TANK.t2) +
+      '<div class="ret" aria-hidden="true"><div class="c1"></div><div class="c2"></div><div class="c3"><span class="ret-lbl" data-i18n="ret_lbl"></span></div><div class="c4"></div><div class="c5"></div></div>';
+  }
+
+  function buildInputs() {
+    $('#inputGrid').innerHTML = TANKS.map(t => `
+      <div class="in-card" id="card-${t.id}" data-mode="free" style="border-top-color:${t.color}">
+        <div class="in-title"><span data-tank-name="${t.id}"></span><small id="dsg-${t.id}"></small></div>
+        <div class="seg" role="radiogroup" data-aria-tank="${t.id}" data-aria-key="aria_mode">
+          <label><input type="radio" name="mode-${t.id}" value="free"><span data-i18n="in_mode_free"></span></label>
+          <label><input type="radio" name="mode-${t.id}" value="avail"><span data-i18n="in_mode_avail"></span></label>
+        </div>
+        <div class="in-row">
+          <input type="number" id="in-${t.id}" step="any" inputmode="decimal" data-aria-tank="${t.id}" data-aria-key="aria_value">
+          <span class="unit" id="unit-${t.id}">cm</span>
+        </div>
+        <div class="preview" id="pv-${t.id}"></div>
+        <div class="hint" id="hint-${t.id}"></div>
+        <div class="warn-msg" id="warn-${t.id}" role="alert"></div>
+      </div>`).join('');
+  }
+
+  function setModeUI(t, mode) {
+    const lim = limits(t, mode);
+    $('#card-' + t.id).dataset.mode = mode;
+    $$('input[name="mode-' + t.id + '"]').forEach(r => { r.checked = (r.value === mode); });
+    $('#unit-' + t.id).textContent = lim.unit;
+    $('#hint-' + t.id).textContent = tr(mode === 'free' ? 'in_tip_free' : 'in_tip_avail') + '\n' +
+      tr('in_range', { min: fmt(lim.min, 1), max: fmt(lim.max, 1), unit: lim.unit });
+  }
+  function setInputFromState(t) {
+    const s = state[t.id];
+    setModeUI(t, s.mode);
+    $('#in-' + t.id).value = +s.value.toFixed(2);
+  }
+  function renderWarn(t) {
+    const w = warnState[t.id], el = $('#warn-' + t.id), inp = $('#in-' + t.id);
+    if (!w) { el.textContent = ''; inp.classList.remove('invalid'); return; }
+    el.textContent = '\u26A0 ' + tr(w.key, w.p) + (w.retained ? ' ' + tr('v_retained') : '');
+    inp.classList.add('invalid');
+  }
+
+  /** Live preview under the input box */
+  function previewTank(t) {
+    const el = $('#pv-' + t.id);
+    const mode = $('#card-' + t.id).dataset.mode;
+    const txt = $('#in-' + t.id).value.trim().replace(',', '.');
+    const raw = txt === '' ? NaN : parseFloat(txt);
+    if (!isFinite(raw)) { el.textContent = ''; el.className = 'preview'; return; }
+    const v = validate(t, mode, raw);
+    const r = compute(t, mode, v.value);
+    el.textContent = tr('pv', { avail: fmt(r.avail), util: fmt(r.util, 1) });
+    el.className = 'preview pv-' + statusOf(r.util);
+  }
+  const previewAll = () => TANKS.forEach(previewTank);
+
+  function setDirty(on) {
+    $('#pendingMsg').classList.toggle('hidden', !on);
+    $('#btnUpdate').classList.toggle('pulse', !!on);
+  }
+
+  /** Gauges (SVG uses literal attributes so html2canvas can render it) */
+  function gaugeHTML(id) {
+    const arc = 'M20 105 A80 80 0 0 1 180 105';
+    const isSys = id === 'sys';
+    return `
+    <div class="card gauge-card">
+      <div class="gauge-title" ${isSys ? 'data-i18n="g_sys"' : 'data-tank-name="' + id + '"'}></div>
+      <svg class="gauge" id="g-${id}" viewBox="0 0 200 125" xmlns="http://www.w3.org/2000/svg" role="img" ${isSys ? 'data-i18n-aria="g_sys"' : 'data-aria-tank="' + id + '" data-aria-key="aria_gauge"'}>
+        <path class="g-track" d="${arc}" fill="none" stroke="#1b3a5c" stroke-width="16" stroke-linecap="round" pathLength="100"/>
+        <path class="g-val" d="${arc}" fill="none" stroke="#22c55e" stroke-width="16" stroke-linecap="round" pathLength="100" stroke-dasharray="0 100" style="transition:stroke-dasharray 1.2s ease"/>
+        <text class="g-pct" x="100" y="88" text-anchor="middle" font-size="30" font-weight="700" font-family="Segoe UI,Leelawadee UI,Tahoma,sans-serif" fill="#ffffff">0%</text>
+        <text class="g-sub" data-i18n="g_used" x="100" y="106" text-anchor="middle" font-size="10" font-family="Segoe UI,Leelawadee UI,Tahoma,sans-serif" fill="#8fb0cc" letter-spacing="1.5">UTILIZED</text>
+        <text class="g-min" x="20" y="122" text-anchor="middle" font-size="9" font-family="Segoe UI,Arial,sans-serif" fill="#8fb0cc">0</text>
+        <text class="g-max" x="180" y="122" text-anchor="middle" font-size="9" font-family="Segoe UI,Arial,sans-serif" fill="#8fb0cc">100</text>
+      </svg>
+      <div class="gauge-foot" id="gf-${id}">--</div>
+    </div>`;
+  }
+  function buildGauges() {
+    $('#gaugeGrid').innerHTML = TANKS.map(t => gaugeHTML(t.id)).join('') + gaugeHTML('sys');
+  }
+  function paintGauges() {
+    const track = cssVar('--track'), text = cssVar('--text'), muted = cssVar('--muted');
+    $$('.gauge').forEach(g => {
+      g.querySelector('.g-track').setAttribute('stroke', track);
+      g.querySelector('.g-pct').setAttribute('fill', text);
+      ['.g-sub', '.g-min', '.g-max'].forEach(s => g.querySelector(s).setAttribute('fill', muted));
+    });
+  }
+  function setGauge(id, pct, color, design, avail) {
+    const g = $('#g-' + id); if (!g) return;
+    const v = g.querySelector('.g-val');
+    v.setAttribute('stroke', color);
+    v.setAttribute('stroke-dasharray', clamp(pct, 0, 100) + ' 100');
+    g.querySelector('.g-pct').textContent = fmt(pct, 1) + '%';
+    $('#gf-' + id).innerHTML = tr('g_foot', { a: '<b>' + fmt(avail) + '</b>', d: fmt(design) });
+  }
+
+  function buildBasis() {
+    $('#basisBody').innerHTML = TANKS.map(t => `
+      <tr><td>${tname(t)}</td><td>${tr(t.typeKey)}</td><td>${fmt(t.area, 1)}</td><td>${fmt(t.depth, 2)}</td>
+      <td>${fmt(t.design)}</td><td>${fmt(t.fsMin * 100, 1)}</td></tr>`).join('');
+  }
+
+  /* ==========================================================================
+     6. RENDERING
+     ========================================================================== */
+  function renderTank(t) {
+    const r = calc[t.id], st = statusOf(r.util);
+    const block = $('#block-' + t.id);
+    block.classList.remove('st-normal', 'st-warning', 'st-critical');
+    block.classList.add('st-' + st);
+    $('#badge-' + t.id).textContent = ICON[st] + ' ' + stLabel(st);
+
+    const w = $('#water-' + t.id);
+    w.style.height = r.util + '%';
+    w.style.opacity = r.util < 0.3 ? '0' : '';
+
+    animateNumber($('#pct-' + t.id), r.util, 1, '%', 900);
+    $('#av-' + t.id).textContent  = fmt(r.avail) + ' m\u00b3';
+    $('#rm-' + t.id).textContent  = tr('ro_remain') + ' ' + fmt(r.remain, 1) + ' %';
+    $('#fs-' + t.id).textContent  = fmt(r.freeCm, 1) + ' cm';
+    $('#wd-' + t.id).textContent  = fmt(r.waterDepth, 2) + ' m';
+    $('#vol-' + t.id).textContent = fmt(r.vol) + ' m\u00b3';
+    $('#ut-' + t.id).textContent  = fmt(r.util, 1) + ' %';
+  }
+
+  function renderThresholdMarks() {
+    TANKS.forEach(t => {
+      const w = $('#thw-' + t.id), c = $('#thc-' + t.id);
+      w.style.bottom = th.warn + '%'; w.firstElementChild.textContent = tr('tr_warn', { n: th.warn });
+      c.style.bottom = th.crit + '%'; c.firstElementChild.textContent = tr('tr_crit', { n: th.crit });
+    });
+    $('#legend').innerHTML =
+      '<span class="lg"><i style="background:' + COLORS.normal + '"></i>' + ICON.normal + ' ' + tr('lg_normal') + ' 0\u2013' + th.warn + '%</span>' +
+      '<span class="lg"><i style="background:' + COLORS.warning + '"></i>' + ICON.warning + ' ' + tr('lg_warning') + ' ' + th.warn + '\u2013' + th.crit + '%</span>' +
+      '<span class="lg"><i style="background:' + COLORS.critical + '"></i>' + ICON.critical + ' ' + tr('lg_critical') + ' ' + th.crit + '\u2013100%</span>' +
+      '<span class="lg-hint">' + tr('lg_hint') + '</span>';
+  }
+
+  function renderKPIs(sys) {
+    animateNumber($('#kpiAvail'), sys.avail, 0, '', 1000);
+    animateNumber($('#kpiOcc'), sys.vol, 0, '', 1000);
+    animateNumber($('#kpiUtil'), sys.util, 1, '', 1000);
+    $('#kpiAvailSub').textContent = tr('kpi_avail_sub', { a: fmt(calc.t1.avail), b: fmt(calc.t2.avail), c: fmt(calc.t3.avail) });
+    $('#kpiOccSub').textContent = tr('kpi_occ_sub', { total: fmt(TOTAL_DESIGN) });
+    const bar = $('#kpiUtilBar');
+    bar.style.width = clamp(sys.util, 0, 100) + '%';
+    bar.style.background = sys.risk.key === 'critical' ? COLORS.critical : (sys.risk.key === 'high' ? COLORS.warning : (sys.risk.key === 'medium' ? COLORS.medium : COLORS.normal));
+    const card = $('#kpiRiskCard');
+    card.className = 'card kpi risk-' + sys.risk.key;
+    $('#kpiRisk').textContent = riskLabel(sys.risk);
+    $('#kpiRiskSub').textContent = tr('rk_' + sys.risk.key);
+  }
+
+  function renderGauges(sys) {
+    TANKS.forEach(t => {
+      const r = calc[t.id];
+      setGauge(t.id, r.util, COLORS[statusOf(r.util)], t.design, r.avail);
+    });
+    setGauge('sys', sys.util, sys.risk.color, TOTAL_DESIGN, sys.avail);
+  }
+
+  /** Big status banner: icon + headline + detail + what to do */
+  function renderAlarm(sys) {
+    const bad = TANKS.filter(t => statusOf(calc[t.id].util) !== 'normal');
+    const critical = sys.risk.key === 'critical' || TANKS.some(t => statusOf(calc[t.id].util) === 'critical');
+    const warning = !critical && (sys.risk.key === 'high' || bad.length > 0);
+    const level = critical ? 'critical' : (warning ? 'warning' : 'ok');
+
+    let detail = tr('al_d_ok');
+    if (level !== 'ok') {
+      const parts = bad.map(t => tr('al_item', { name: tname(t), util: fmt(calc[t.id].util, 1), status: stLabel(statusOf(calc[t.id].util)) }));
+      if (sys.risk.key === 'high' || sys.risk.key === 'critical') parts.push(tr('al_sys', { util: fmt(sys.util, 1), risk: riskLabel(sys.risk) }));
+      detail = parts.join(' | ');
+    }
+    const banner = $('#alarmBanner');
+    banner.className = 'alarm ' + level;
+    banner.innerHTML =
+      '<span class="al-ic">' + ICON[level] + '</span>' +
+      '<div><div class="al-h">' + tr('al_h_' + level) + '</div><div class="al-d">' + detail + '</div></div>' +
+      '<div class="al-a">' + tr('al_a_' + level) + '</div>';
+  }
+
+  function buildReport(sys) {
+    const d = lastUpdate, k = sys.risk.key;
+    const statusSentence = tr('rpt_s_' + k, { c: k === 'critical' ? COLORS.critical : COLORS.warning });
+    const rec = tr('rpt_r_' + k);
+
+    const tankLines = TANKS.map(t => {
+      const r = calc[t.id], st = statusOf(r.util);
+      return '<li>' + tr('rpt_tank', { name: tname(t), avail: fmt(r.avail), util: fmt(r.util, 1), status: stLabel(st).toLowerCase() }) + '</li>';
+    }).join('');
+
+    $('#reportMeta').textContent = tr('rpt_meta', { date: pad(d.getDate()) + '/' + pad(d.getMonth() + 1) + '/' + d.getFullYear(), time: fmtTime(d) });
+    $('#reportText').innerHTML =
+      '<p>' + tr('rpt_main', { time: fmtTime(d), avail: fmt(sys.avail), util: fmt(sys.util, 1), status: statusSentence }) + '</p>' +
+      '<ul style="margin:0 0 6px;padding-left:20px;font-size:14px">' + tankLines + '</ul>' +
+      '<div class="rec"><b>' + tr('rpt_rec') + '</b> ' + rec + '</div>';
+
+    $('#reportBody').innerHTML = TANKS.map(t => {
+      const r = calc[t.id], st = statusOf(r.util);
+      return '<tr><td>' + tname(t) + '</td><td>' + fmt(r.freeCm, 1) + '</td><td>' + fmt(r.waterDepth, 2) + '</td><td>' + fmt(r.vol) +
+        '</td><td>' + fmt(r.avail) + '</td><td>' + fmt(r.util, 1) + '%</td><td>' + fmt(r.remain, 1) + '%</td><td><span class="pill ' + st + '">' + ICON[st] + ' ' + stLabel(st) + '</span></td></tr>';
+    }).join('');
+    $('#reportFoot').innerHTML = '<tr><td>' + tr('c_total') + '</td><td></td><td></td><td>' + fmt(sys.vol) + '</td><td>' + fmt(sys.avail) + '</td><td>' +
+      fmt(sys.util, 1) + '%</td><td>' + fmt(100 - sys.util, 1) + '%</td><td><span class="pill ' +
+      (k === 'critical' ? 'critical' : (k === 'high' ? 'warning' : '')) + '">' + riskLabel(sys.risk) + '</span></td></tr>';
+  }
+
+  function renderAll() {
+    const sys = getSystem();
+    TANKS.forEach(renderTank);
+    renderThresholdMarks();
+    renderKPIs(sys);
+    renderGauges(sys);
+    renderAlarm(sys);
+    buildReport(sys);
+    $('#lastUpdated').textContent = fmtDateTime(lastUpdate);
+    $('#footUpdated').textContent = fmtDateTime(lastUpdate);
+  }
+
+  /* UPDATE : read inputs -> validate -> calculate -> render */
+  function updateDashboard(opt) {
+    opt = opt || {};
+    const toasts = [];
+    TANKS.forEach(t => {
+      const mode = $('#card-' + t.id).dataset.mode;
+      const inp = $('#in-' + t.id);
+      const txt = inp.value.trim().replace(',', '.');
+      const raw = txt === '' ? NaN : parseFloat(txt);
+      const v = validate(t, mode, raw);
+      warnState[t.id] = null;
+
+      if (!v.ok) {
+        warnState[t.id] = { key: v.key, p: v.p, retained: true };
+        toasts.push({ t, key: v.key, p: v.p });
+        setInputFromState(t);
+        renderWarn(t);
+        calc[t.id] = compute(t, state[t.id].mode, state[t.id].value);
+        return;
+      }
+      if (v.key) {
+        warnState[t.id] = { key: v.key, p: v.p, retained: false };
+        toasts.push({ t, key: v.key, p: v.p });
+      }
+      state[t.id] = { mode: mode, value: v.value };
+      inp.value = +v.value.toFixed(2);
+      calc[t.id] = compute(t, mode, v.value);
+      renderWarn(t);
+    });
+
+    store.set(STORAGE.state, state);
+    if (!opt.noCloud) cloudWrite('PUT', '/state', { state });
+    lastUpdate = new Date();
+    renderAll();
+    previewAll();
+    setDirty(false);
+
+    if (!opt.silent) {
+      if (toasts.length) toasts.forEach(w => toast(tname(w.t) + ': ' + tr(w.key, w.p), 'warn')); else toast(tr('t_updated'), 'ok');
+    }
+    if ($('#autoSave').checked && !opt.noSave) writeRecords(true);
+  }
+
+  /* ==========================================================================
+     7. RECORDS / CSV / CHARTS
+     ========================================================================== */
+  const MAX_AGE = 35 * 864e5, MAX_RECORDS = 20000;
+
+  function writeRecords(silent) {
+    const ts = Date.now();
+    const batch = TANKS.map(t => {
+      const r = calc[t.id];
+      return { t: ts, id: t.id, tank: I18N.en['tn_' + t.id], level: +r.util.toFixed(2), vol: +r.vol.toFixed(1), avail: +r.avail.toFixed(1), free: +r.freeCm.toFixed(1) };
+    });
+    records = records.concat(batch);
+    cloudWrite('POST', '/records', { records: batch });
+    const cutoff = ts - MAX_AGE;
+    records = records.filter(x => x.t >= cutoff);
+    if (records.length > MAX_RECORDS) records = records.slice(records.length - MAX_RECORDS);
+    const ok = store.set(STORAGE.records, records);
+    refreshCharts(); renderHistory();
+    if (!silent) toast(ok ? tr('t_saved', { n: TANKS.length }) : tr('t_storefail'), ok ? 'ok' : 'err');
+  }
+  function saveRecord() {
+    updateDashboard({ silent: true, noSave: true });
+    writeRecords(false);
+  }
+
+  const recTankName = x => (TANK[x.id] ? tname(TANK[x.id]) : x.tank);
+
+  function renderHistory() {
+    const rows = records.slice(-12).reverse();
+    $('#historyBody').innerHTML = rows.length ? rows.map(x =>
+      '<tr><td>' + fmtDateTime(new Date(x.t)) + '</td><td>' + recTankName(x) + '</td><td>' + fmt(x.level, 1) + '</td><td>' + fmt(x.vol) +
+      '</td><td>' + fmt(x.avail) + '</td><td>' + fmt(x.free, 1) + '</td></tr>').join('')
+      : '<tr><td colspan="6" style="text-align:center;color:var(--muted)">' + tr('hs_none') + '</td></tr>';
+    $('#historyNote').textContent = tr('hs_note', { n: records.length, k: rows.length });
+  }
+
+  function exportHistoryCSV() {
+    if (!records.length) { toast(tr('t_nohist'), 'warn'); return; }
+    const head = [tr('csvh_dt'), tr('csvh_tank'), tr('csvh_level'), tr('csvh_vol'), tr('csvh_avail'), tr('csvh_free')];
+    const lines = [head.map(csvCell).join(',')];
+    records.slice().sort((a, b) => a.t - b.t).forEach(x => {
+      lines.push([fmtDateTime(new Date(x.t)), recTankName(x), x.level, x.vol, x.avail, x.free].map(csvCell).join(','));
+    });
+    downloadText('ESCMS_History_' + stamp(new Date()) + '.csv', lines.join('\r\n'));
+    toast(tr('t_histexp'), 'ok');
+  }
+
+  function exportReportCSV() {
+    const sys = getSystem();
+    const L = [];
+    L.push([tr('csv_title')].map(csvCell).join(','));
+    L.push([tr('csv_gen'), fmtDateTime(lastUpdate)].map(csvCell).join(','));
+    L.push([tr('csv_t_avail'), sys.avail.toFixed(1)].map(csvCell).join(','));
+    L.push([tr('csv_t_occ'), sys.vol.toFixed(1)].map(csvCell).join(','));
+    L.push([tr('csv_t_util'), sys.util.toFixed(1)].map(csvCell).join(','));
+    L.push([tr('csv_t_risk'), riskLabel(sys.risk)].map(csvCell).join(','));
+    L.push('');
+    L.push([tr('c_tank'), tr('csvh_free'), tr('csvh_depth'), tr('csvh_vol'), tr('csvh_avail'), tr('csvh_util'), tr('csvh_remain'), tr('csvh_status')].map(csvCell).join(','));
+    TANKS.forEach(t => {
+      const r = calc[t.id];
+      L.push([tname(t), r.freeCm.toFixed(1), r.waterDepth.toFixed(2), r.vol.toFixed(1), r.avail.toFixed(1), r.util.toFixed(1), r.remain.toFixed(1), stLabel(statusOf(r.util))].map(csvCell).join(','));
+    });
+    downloadText('ESCMS_Report_' + stamp(new Date()) + '.csv', L.join('\r\n'));
+    toast(tr('t_repcsv'), 'ok');
+  }
+
+  /* ---- Charts (Chart.js) ---- */
+  const RANGES = [
+    { key: '24h', ms: 864e5,     canvas: 'chart24', empty: 'empty24' },
+    { key: '7d',  ms: 7 * 864e5,  canvas: 'chart7',  empty: 'empty7' },
+    { key: '30d', ms: 30 * 864e5, canvas: 'chart30', empty: 'empty30' }
+  ];
+  const METRIC = { level: { key: 'level', unit: '%' }, volume: { key: 'vol', unit: 'm\u00b3' }, available: { key: 'avail', unit: 'm\u00b3' } };
+
+  function tickLabel(v, key) {
+    const d = new Date(v);
+    return key === '24h' ? pad(d.getHours()) + ':' + pad(d.getMinutes()) : pad(d.getDate()) + '/' + pad(d.getMonth() + 1);
+  }
+
+  function createCharts() {
+    if (typeof Chart === 'undefined') {
+      $$('.chart-box').forEach(b => { b.innerHTML = '<div class="chart-empty">' + tr('tr_nolib') + '</div>'; });
+      return;
+    }
+    RANGES.forEach(r => {
+      r.chart = new Chart($('#' + r.canvas), {
+        type: 'line',
+        data: { datasets: [] },
+        options: {
+          responsive: true, maintainAspectRatio: false, animation: false, parsing: false,
+          interaction: { mode: 'nearest', intersect: false, axis: 'x' },
+          scales: {
+            x: { type: 'linear', ticks: { maxTicksLimit: 6, callback: v => tickLabel(v, r.key) }, grid: {} },
+            y: { beginAtZero: true, title: { display: true, text: '%' }, grid: {} }
+          },
+          plugins: {
+            legend: { labels: { boxWidth: 12, font: { size: 11 } } },
+            tooltip: { callbacks: { title: items => fmtDateTime(new Date(items[0].parsed.x)) } }
+          }
+        }
+      });
+    });
+  }
+
+  function refreshCharts() {
+    if (typeof Chart === 'undefined' || !RANGES[0].chart) return;
+    const now = Date.now();
+    const m = METRIC[$('#metricSel').value] || METRIC.level;
+    const muted = cssVar('--muted'), grid = cssVar('--track');
+
+    RANGES.forEach(r => {
+      const min = now - r.ms;
+      const sets = TANKS.map(t => ({
+        label: tname(t),
+        data: records.filter(x => x.id === t.id && x.t >= min).sort((a, b) => a.t - b.t).map(x => ({ x: x.t, y: x[m.key] })),
+        borderColor: t.color, backgroundColor: t.color + '33', borderWidth: 2, pointRadius: 2.5, tension: 0.2
+      }));
+      const hasData = sets.some(s => s.data.length > 0);
+      if (m.key === 'level') {
+        sets.push({ label: tr('tr_warn', { n: th.warn }), data: [{ x: min, y: th.warn }, { x: now, y: th.warn }], borderColor: COLORS.warning, borderDash: [6, 4], borderWidth: 1, pointRadius: 0 });
+        sets.push({ label: tr('tr_crit', { n: th.crit }), data: [{ x: min, y: th.crit }, { x: now, y: th.crit }], borderColor: COLORS.critical, borderDash: [6, 4], borderWidth: 1, pointRadius: 0 });
+      }
+      const o = r.chart.options;
+      o.scales.x.min = min; o.scales.x.max = now;
+      o.scales.x.ticks.color = muted; o.scales.x.grid.color = grid;
+      o.scales.y.ticks = { color: muted }; o.scales.y.grid.color = grid;
+      o.scales.y.max = m.key === 'level' ? 100 : undefined;
+      o.scales.y.title.text = m.unit; o.scales.y.title.color = muted;
+      o.plugins.legend.labels.color = muted;
+      r.chart.data.datasets = sets;
+      r.chart.update('none');
+      $('#' + r.empty).classList.toggle('hidden', hasData);
+    });
+  }
+
+  /* ==========================================================================
+     8. EXPORT / PRINT / FULLSCREEN / THEME / LANGUAGE
+     ========================================================================== */
+  async function exportElementPNG(target, filename) {
+    if (typeof html2canvas === 'undefined') { toast(tr('t_nolib'), 'err'); return; }
+    toast(tr('t_imggen'), 'info');
+    try {
+      const canvas = await html2canvas(target, {
+        backgroundColor: cssVar('--bg'), scale: 2, useCORS: true, logging: false,
+        ignoreElements: el => el.classList && el.classList.contains('no-export')
+      });
+      canvas.toBlob(blob => {
+        const a = document.createElement('a');
+        const url = URL.createObjectURL(blob);
+        a.href = url; a.download = filename;
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1500);
+        toast(tr('t_imgok'), 'ok');
+      }, 'image/png');
+    } catch (e) {
+      console.error(e); toast(tr('t_imgfail', { m: e.message }), 'err');
+    }
+  }
+
+  function updateThemeBtn() {
+    const dark = document.documentElement.getAttribute('data-theme') === 'dark';
+    $('#btnTheme').innerHTML = dark ? '&#9788; ' + tr('btn_light') : '&#9790; ' + tr('btn_dark');
+  }
+  function setTheme(theme, persist) {
+    document.documentElement.setAttribute('data-theme', theme);
+    updateThemeBtn();
+    document.querySelector('meta[name="theme-color"]').setAttribute('content', theme === 'dark' ? '#081b29' : '#eaf1f8');
+    if (persist !== false) store.set(STORAGE.theme, theme);
+    paintGauges(); refreshCharts();
+  }
+
+  function toggleFullscreen() {
+    const el = document.documentElement;
+    if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+      const req = el.requestFullscreen || el.webkitRequestFullscreen;
+      if (req) { const p = req.call(el); if (p && p.catch) p.catch(() => toast(tr('t_fs_block'), 'warn')); }
+      else toast(tr('t_fs_none'), 'warn');
+    } else {
+      (document.exitFullscreen || document.webkitExitFullscreen).call(document);
+    }
+  }
+  function syncFSButton() {
+    const on = document.fullscreenElement || document.webkitFullscreenElement;
+    $('#btnFS').innerHTML = on ? '&#10006; ' + tr('btn_fs_exit') : '&#9974; ' + tr('btn_fs');
+  }
+
+  function resetAll() {
+    if (!confirm(tr('c_reset'))) return;
+    state = JSON.parse(JSON.stringify(DEFAULT_STATE));
+    TANKS.forEach(t => { setInputFromState(t); warnState[t.id] = null; renderWarn(t); });
+    updateDashboard({ silent: true, noSave: true });
+    toast(tr('t_reset'), 'ok');
+  }
+
+  /** Apply the current language (no data is lost). The main title always stays English. */
+  function applyLanguage() {
+    document.documentElement.lang = LANG;
+    $$('.lang-sw button').forEach(b => {
+      const on = b.dataset.lang === LANG;
+      b.classList.toggle('active', on);
+      b.setAttribute('aria-pressed', on ? 'true' : 'false');
+    });
+    applyStatic();
+    TANKS.forEach(t => {
+      $('#dsg-' + t.id).textContent = tr('in_design', { v: fmt(t.design) });
+      setModeUI(t, $('#card-' + t.id).dataset.mode);
+      renderWarn(t);
+    });
+    buildBasis(); updateThemeBtn(); syncFSButton(); previewAll();
+    setSync($('#btnSync').dataset.sync || 'off');
+    if (calc.t1) { renderAll(); renderHistory(); refreshCharts(); }
+    tickClock();
+  }
+  function setLanguage(lang) {
+    LANG = (lang === 'th') ? 'th' : 'en';
+    store.set(STORAGE.lang, LANG);
+    applyLanguage();
+  }
+
+  /* ==========================================================================
+     9. EVENT WIRING & INITIALISATION
+     ========================================================================== */
+  function wireEvents() {
+    $('#btnUpdate').addEventListener('click', () => updateDashboard());
+    $('#btnSave').addEventListener('click', saveRecord);
+    $('#btnPNG').addEventListener('click', () => exportElementPNG($('#app'), 'ESCMS_Dashboard_' + stamp(new Date()) + '.png'));
+    $('#btnCSV').addEventListener('click', exportHistoryCSV);
+    $('#btnPrint').addEventListener('click', () => window.print());
+    $('#btnReset').addEventListener('click', resetAll);
+    $('#btnReportImg').addEventListener('click', () => exportElementPNG($('#reportCard'), 'ESCMS_Report_' + stamp(new Date()) + '.png'));
+    $('#btnReportCSV').addEventListener('click', exportReportCSV);
+    $('#btnClearHist').addEventListener('click', () => {
+      if (!records.length) { toast(tr('t_hist_empty'), 'info'); return; }
+      if (confirm(tr('c_clear'))) {
+        records = []; store.del(STORAGE.records); cloudWrite('DELETE', '/records');
+        refreshCharts(); renderHistory(); toast(tr('t_hist_clear'), 'ok');
+      }
+    });
+
+    $$('.lang-sw button').forEach(b => b.addEventListener('click', () => setLanguage(b.dataset.lang)));
+
+    $('#btnTheme').addEventListener('click', () => setTheme(document.documentElement.getAttribute('data-theme') === 'dark' ? 'light' : 'dark'));
+    $('#btnFS').addEventListener('click', toggleFullscreen);
+    $('#btnSync').addEventListener('click', () => cloudLoad({ force: true }));
+    document.addEventListener('visibilitychange', () => { if (!document.hidden) cloudPoll(); });
+    document.addEventListener('fullscreenchange', syncFSButton);
+    document.addEventListener('webkitfullscreenchange', syncFSButton);
+
+    $('#metricSel').addEventListener('change', refreshCharts);
+    $('#autoSave').addEventListener('change', e => store.set(STORAGE.auto, e.target.checked));
+
+    // Typing in an input: live preview + "not yet applied" reminder
+    $('#inputGrid').addEventListener('input', e => {
+      const el = e.target;
+      if (el.type !== 'number' || el.id.indexOf('in-') !== 0) return;
+      previewTank(TANK[el.id.slice(3)]);
+      setDirty(true);
+    });
+
+    // Input-mode switch: convert the typed value into the other unit
+    $('#inputGrid').addEventListener('change', e => {
+      const el = e.target;
+      if (!el.name || el.name.indexOf('mode-') !== 0) return;
+      const t = TANK[el.name.slice(5)];
+      const card = $('#card-' + t.id), oldMode = card.dataset.mode, newMode = el.value;
+      if (oldMode === newMode) return;
+      const inp = $('#in-' + t.id), raw = parseFloat(inp.value);
+      let r;
+      if (isFinite(raw)) { const v = validate(t, oldMode, raw); r = compute(t, oldMode, v.value); }
+      else r = calc[t.id];
+      inp.value = +(newMode === 'free' ? r.freeCm : r.avail).toFixed(2);
+      setModeUI(t, newMode);
+      previewTank(t);
+    });
+    // Enter key = UPDATE
+    $('#inputGrid').addEventListener('keydown', e => { if (e.key === 'Enter' && e.target.type === 'number') updateDashboard(); });
+
+    // Threshold panel
+    $('#btnThApply').addEventListener('click', () => {
+      const med = parseFloat($('#thMed').value), warn = parseFloat($('#thWarn').value), crit = parseFloat($('#thCrit').value);
+      if (![med, warn, crit].every(isFinite) || !(med > 0 && med < warn && warn < crit && crit <= 100)) {
+        toast(tr('t_th_bad'), 'err'); return;
+      }
+      th = { med, warn, crit }; store.set(STORAGE.thresholds, th);
+      cloudWrite('PUT', '/thresholds', { thresholds: th });
+      renderAll(); previewAll(); refreshCharts(); toast(tr('t_th_ok'), 'ok');
+    });
+    $('#btnThDefault').addEventListener('click', () => {
+      th = Object.assign({}, DEFAULT_TH); store.set(STORAGE.thresholds, th);
+      cloudWrite('PUT', '/thresholds', { thresholds: th });
+      fillThresholdInputs(); renderAll(); previewAll(); refreshCharts(); toast(tr('t_th_def'), 'ok');
+    });
+
+    // Print: force light theme so the A4 report is ink friendly
+    let themeBeforePrint = null;
+    window.addEventListener('beforeprint', () => { themeBeforePrint = document.documentElement.getAttribute('data-theme'); setTheme('light', false); });
+    window.addEventListener('afterprint', () => { if (themeBeforePrint) { setTheme(themeBeforePrint, false); themeBeforePrint = null; } });
+  }
+
+  function fillThresholdInputs() {
+    $('#thMed').value = th.med; $('#thWarn').value = th.warn; $('#thCrit').value = th.crit;
+  }
+
+  /** Live clock - refreshed every second (date follows the selected language) */
+  function tickClock() {
+    const d = new Date();
+    $('#clockTime').textContent = pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+    const loc = LANG === 'th' ? 'th-TH-u-ca-gregory' : 'en-GB';
+    $('#clockDate').textContent = d.toLocaleDateString(loc, { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' });
+  }
+
+  /** Application start-up */
+  function init() {
+    document.documentElement.setAttribute('data-theme', store.get(STORAGE.theme, 'dark'));
+    document.documentElement.lang = LANG;
+
+    buildFlow(); buildInputs(); buildGauges();
+    applyStatic();
+    TANKS.forEach(setInputFromState);
+    fillThresholdInputs();
+    $('#autoSave').checked = !!store.get(STORAGE.auto, false);
+
+    wireEvents();
+    createCharts();
+    setTheme(document.documentElement.getAttribute('data-theme'), false);
+
+    updateDashboard({ silent: true, noSave: true });
+    applyLanguage();
+    renderHistory();
+    refreshCharts();
+
+    tickClock(); setInterval(tickClock, 1000);
+    setInterval(refreshCharts, 60000);
+
+    setSync('busy');
+    cloudLoad();
+    setInterval(cloudPoll, CLOUD_POLL_MS);
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init); else init();
+})();
+</script>
+</body>
+</html>

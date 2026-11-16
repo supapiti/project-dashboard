@@ -1,0 +1,24 @@
+{
+  // Must match the Worker name in the Cloudflare dashboard
+  "name": "project-dashboard",
+  "main": "src/worker.js",
+  "compatibility_date": "2025-10-01",
+
+  // index.html + logo are served as static files from this folder.
+  // Files listed in .assetsignore are NOT published.
+  "assets": {
+    "directory": "./",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*"]
+  },
+
+  // Shared data storage.
+  // 1) Cloudflare dashboard > Storage & databases > Workers KV > Create  (name: escms-data)
+  // 2) Copy its ID and paste it below, replacing PASTE_YOUR_KV_NAMESPACE_ID_HERE
+  "kv_namespaces": [
+    { "binding": "ESCMS_KV", "id": "e291714f8b924c81bfb714da3053d12e" }
+  ]
+
+  // EDIT_KEY (password for saving) is a SECRET: add it in the dashboard under
+  // Settings > Variables and Secrets > Add > Type: Secret. Never put it in this file.
+}

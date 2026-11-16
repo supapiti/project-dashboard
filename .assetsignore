@@ -1,0 +1,13 @@
+src
+functions
+node_modules
+.wrangler
+.git
+.gitignore
+.assetsignore
+wrangler.jsonc
+wrangler.toml
+package.json
+package-lock.json
+*.md
+*.zip
