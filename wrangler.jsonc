@@ -1,7 +1,7 @@
 {
   // Must match the Worker name in the Cloudflare dashboard
   "name": "project-dashboard",
-  "main": "src/worker.js",
+  "main": "worker.js",
   "compatibility_date": "2025-10-01",
 
   // index.html + logo are served as static files from this folder.
