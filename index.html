@@ -9,7 +9,7 @@
  Folder   : keep SCGP_Primary_Logo-01.png in the same folder as this file
  Run      : VS Code > Live Server > Open with Live Server
  Libraries: Chart.js (trends), html2canvas (PNG export) - loaded from CDN
- Storage  : Cloudflare Worker + KV (shared, see src/worker.js, wrangler.jsonc
+ Storage  : Cloudflare Worker + KV (shared, see worker.js, wrangler.jsonc
             and DEPLOY_CLOUDFLARE.md). Falls back to browser localStorage when
             opened locally (file:// or Live Server) or when /api is unreachable.
 ================================================================================
@@ -395,6 +395,48 @@ select.sel{
 }
 
 /* ==========================================================================
+   11b. HOLDING POND MONITOR
+   ========================================================================== */
+.hp-grid{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:16px;align-items:start}
+.hp-grid .tank-rect{height:240px}
+.hp-form{display:grid;gap:10px}
+.hp-form .row2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.hp-form label{display:block;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);margin-bottom:4px;font-weight:600}
+.hp-form input[type=date],.hp-form input[type=number].sm{
+  width:100%;padding:8px 10px;font-size:16px;font-weight:700;border-radius:6px;
+  background:var(--input-bg);color:var(--text);border:2px solid var(--border);font-family:inherit;
+}
+.hp-form input:focus{outline:none;border-color:var(--accent)}
+.hp-btns{display:flex;gap:8px;flex-wrap:wrap}
+.hp-btns .btn{flex:1 1 120px}
+.hp-kpis{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px;margin-top:14px}
+.hp-kpis .ti b{font-size:20px}
+.hp-kpis .ti small{display:block;font-size:11px;color:var(--muted);font-weight:600;margin-top:2px}
+.hp-charts{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px;margin-top:14px}
+.hp-charts .wide{grid-column:1/-1}
+.hp-charts .chart-box{height:290px}
+.chart-card .ch-head{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+.chart-card .ch-head h3{margin:0;flex:1 1 auto}
+.ch-sum{font-size:12px;color:var(--muted);margin-top:8px;display:flex;flex-wrap:wrap;gap:4px 16px}
+.ch-sum b{color:var(--text);font-variant-numeric:tabular-nums}
+.assump{display:flex;flex-wrap:wrap;gap:10px;align-items:end;margin-bottom:10px}
+.assump label{font-size:11px;color:var(--muted);font-weight:600;display:block;margin-bottom:3px;letter-spacing:.5px;text-transform:uppercase}
+.assump input{
+  width:110px;padding:6px 8px;font-size:14px;font-weight:700;border-radius:6px;
+  background:var(--input-bg);color:var(--text);border:1px solid var(--border);font-family:inherit;
+}
+.assump .eq{font-size:13px;color:var(--text);font-weight:700;padding-bottom:7px}
+.td-pos{color:var(--good)} .td-neg{color:var(--warn)}
+@media screen and (max-width:1100px){
+  .hp-grid,.hp-charts{grid-template-columns:1fr}
+  .hp-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media print{
+  .hp-charts{grid-template-columns:1fr 1fr}
+  .hp-kpis{grid-template-columns:repeat(5,1fr)}
+}
+
+/* ==========================================================================
    12. THRESHOLD CONFIG
    ========================================================================== */
 .th-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr)) auto;gap:12px;align-items:end}
@@ -624,6 +666,120 @@ select.sel{
     </div>
   </section>
 
+  <!-- ====================================================================
+       HOLDING POND MONITOR (separate from the emergency tank system totals)
+       ==================================================================== -->
+  <section class="print-break" aria-label="Holding pond monitor" id="hpSection">
+    <div class="card">
+      <h2 class="sec-title">
+        <span data-i18n="hp_sec">Holding Pond Monitor</span>
+        <span class="spacer"></span>
+        <span class="no-export no-print" style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="icon-btn" id="hpBtnCSV" type="button">&#128196; <span data-i18n="hp_csv">Export Holding Pond CSV</span></button>
+        </span>
+      </h2>
+
+      <div class="hp-grid">
+        <!-- Visual -->
+        <div class="tank-block wide st-normal" id="block-hp">
+          <div class="tank-head"><span class="tank-name" data-i18n="hp_name">Holding Pond</span><span class="badge" id="badge-hp">NORMAL</span></div>
+          <div class="tank tank-rect" id="tank-hp" role="img" aria-label="Holding pond level">
+            <div class="water" id="water-hp"></div>
+            <div class="th-line w" id="thw-hp"><i></i></div>
+            <div class="th-line c" id="thc-hp"><i></i></div>
+            <div class="tank-content">
+              <div class="pct" id="pct-hp">0%</div>
+              <div class="pct-label" data-i18n="ro_filled"></div>
+            </div>
+          </div>
+          <div class="tank-info">
+            <div class="ti key"><span data-i18n="ro_avail_key"></span><b id="av-hp">--</b><em id="rm-hp"></em></div>
+            <div class="ti"><span data-i18n="hp_space"></span><b id="fs-hp">--</b></div>
+            <div class="ti"><span data-i18n="hp_wlevel"></span><b id="wd-hp">--</b></div>
+            <div class="ti"><span data-i18n="ro_vol"></span><b id="vol-hp">--</b></div>
+            <div class="ti"><span data-i18n="hp_asof"></span><b id="asof-hp">--</b></div>
+          </div>
+          <div class="tank-spec" data-i18n="hp_spec"></div>
+        </div>
+
+        <!-- Daily data entry -->
+        <div class="in-card no-export no-print hp-form">
+          <div class="in-title"><span data-i18n="hp_entry">Daily Level Entry</span><small data-i18n="hp_entry_sub"></small></div>
+          <div class="row2">
+            <div><label for="hpDate" data-i18n="hp_date">Date</label><input type="date" id="hpDate"></div>
+            <div><label for="hpSpace" data-i18n="hp_in_space">Space level (cm)</label><input type="number" class="sm" id="hpSpace" step="0.1" inputmode="decimal"></div>
+          </div>
+          <div class="hint" id="hpHint"></div>
+          <div class="preview" id="hpPreview"></div>
+          <div class="hp-btns">
+            <button class="btn primary" id="hpBtnSave" type="button" data-i18n="hp_save">Save Daily Level</button>
+            <button class="btn danger" id="hpBtnDel" type="button" data-i18n="hp_del">Delete This Date</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Holding pond KPIs -->
+      <div class="hp-kpis">
+        <div class="ti"><span data-i18n="hp_k_target">Annual retreat target</span><b id="hpKTarget">--</b><small id="hpKTargetSub"></small></div>
+        <div class="ti"><span data-i18n="hp_k_ytd">Net reduction (selected year)</span><b id="hpKYtd">--</b><small id="hpKYtdSub"></small></div>
+        <div class="ti"><span data-i18n="hp_k_avg30">Avg net pump-out (last 30 d)</span><b id="hpKAvg">--</b><small id="hpKAvgSub"></small></div>
+        <div class="ti"><span data-i18n="hp_k_empty">Months to empty at target</span><b id="hpKEmpty">--</b><small id="hpKEmptySub"></small></div>
+        <div class="ti"><span data-i18n="hp_k_days">Days recorded</span><b id="hpKDays">--</b><small id="hpKDaysSub"></small></div>
+      </div>
+
+      <div class="hp-charts">
+        <!-- 2. Daily level drop -> pumped-out volume -->
+        <div class="card chart-card">
+          <div class="ch-head">
+            <h3 data-i18n="hp_c_daily">Daily Pump-Out (from level drop)</h3>
+            <select class="sel no-export" id="hpMonthSel" aria-label="Month"></select>
+          </div>
+          <div class="chart-box"><canvas id="hpChartDaily"></canvas><div class="chart-empty hidden" id="hpEmptyDaily" data-i18n="hp_nodata"></div></div>
+          <div class="ch-sum" id="hpSumDaily"></div>
+        </div>
+
+        <!-- 4. Monthly level history -->
+        <div class="card chart-card">
+          <div class="ch-head"><h3 data-i18n="hp_c_month">Monthly Level History</h3><span class="ch-sum" id="hpMonthLbl" style="margin:0"></span></div>
+          <div class="chart-box"><canvas id="hpChartMonth"></canvas><div class="chart-empty hidden" id="hpEmptyMonth" data-i18n="hp_nodata"></div></div>
+          <div class="ch-sum" id="hpSumMonth"></div>
+        </div>
+
+        <!-- 3. Actual vs yearly target -->
+        <div class="card chart-card wide">
+          <div class="ch-head">
+            <h3 data-i18n="hp_c_target">Pump-Out vs Yearly Retreat Target</h3>
+            <select class="sel no-export" id="hpYearSel" aria-label="Year"></select>
+          </div>
+          <div class="assump no-export">
+            <div><label for="hpRate" data-i18n="hp_a_rate">Retreat rate (m³/day)</label><input type="number" id="hpRate" min="0" step="10"></div>
+            <span class="eq">&times;</span>
+            <div><label for="hpDpm" data-i18n="hp_a_days">Days / month</label><input type="number" id="hpDpm" min="1" max="31" step="1"></div>
+            <span class="eq">&times; 12 =</span>
+            <span class="eq" id="hpAnnual">--</span>
+            <button class="icon-btn" id="hpBtnAssumpDef" type="button" data-i18n="hp_a_def">Base assumption (350 × 25 × 12)</button>
+          </div>
+          <div class="chart-box"><canvas id="hpChartTarget"></canvas></div>
+          <div class="ch-sum" id="hpSumTarget"></div>
+        </div>
+      </div>
+
+      <!-- Daily table of the selected month -->
+      <details class="fold" style="margin-top:14px">
+        <summary data-i18n="hp_tbl">Daily Records of Selected Month</summary>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th data-i18n="hp_date">Date</th><th data-i18n="hp_in_space">Space level (cm)</th><th data-i18n="hp_wlevel">Water level (cm)</th>
+              <th data-i18n="ro_vol">Current Volume</th><th data-i18n="hp_t_dcm">Level change (cm)</th><th data-i18n="hp_t_pump">Net pump-out (m³)</th>
+            </tr></thead>
+            <tbody id="hpTblBody"></tbody>
+          </table>
+        </div>
+      </details>
+    </div>
+  </section>
+
   <!-- TANK CAPACITY GAUGES -->
   <section aria-label="Tank capacity gauges">
     <h2 class="sec-title"><span data-i18n="sec_gauge">Tank Capacity Gauges</span></h2>
@@ -821,7 +977,7 @@ select.sel{
     editKey: 'escms_editkey_v1'
   };
 
-  /** Cloudflare Worker endpoint (see src/worker.js).
+  /** Cloudflare Worker endpoint (see worker.js).
       When the page is opened from a file or Live Server the API is not found
       and the dashboard falls back to browser-only storage automatically. */
   const API_BASE = '/api';
@@ -1135,6 +1291,70 @@ select.sel{
     }
   };
 
+  /* Holding pond texts */
+  Object.assign(I18N.en, {
+    hp_sec: 'Holding Pond Monitor', hp_name: 'Holding Pond', hp_csv: 'Export Holding Pond CSV',
+    hp_space: 'Space Level (from top)', hp_wlevel: 'Water level (cm)', hp_asof: 'Reading date',
+    hp_spec: 'Rectangular pond • Design 410,000 m³ • Depth ~8.0 m • Surface area ~55,300 m² • 553 m³ per cm',
+    hp_entry: 'Daily Level Entry', hp_entry_sub: 'Space = distance from top of pond to water surface',
+    hp_date: 'Date', hp_in_space: 'Space level (cm)', hp_save: 'Save Daily Level', hp_del: 'Delete This Date',
+    hp_hint: 'Allowed range: {min} – {max} cm. Volume = 55,300 m² × (8.00 m − space).',
+    hp_pv: 'Water level {lv} cm • Volume {vol} m³ • {util}% full • Available {avail} m³',
+    hp_pv_chg: ' • vs previous day: {chg} m³',
+    hp_k_target: 'Annual retreat target', hp_k_ytd: 'Net reduction (selected period)', hp_k_avg30: 'Avg net pump-out (last 30 d)',
+    hp_k_empty: 'Months to empty at target', hp_k_days: 'Days recorded',
+    hp_k_target_sub: '{r} m³/d × {d} d × 12', hp_k_ytd_sub: '{p}% of {y} target', hp_k_avg_sub: 'target {r} m³/d',
+    hp_k_empty_sub: 'est. empty {m}', hp_k_days_sub: '{a} → {b}',
+    hp_c_daily: 'Daily Pump-Out (from level drop)', hp_c_month: 'Monthly Level History', hp_c_target: 'Pump-Out vs Yearly Retreat Target',
+    hp_nodata: 'No level data for this period.',
+    hp_ds_out: 'Net pump-out (level drop)', hp_ds_in: 'Net inflow (level rise)', hp_ds_rate: 'Target rate',
+    hp_ds_vol: 'Volume (m³)', hp_ds_space: 'Space level (cm)',
+    hp_ds_mact: 'Actual net reduction / month', hp_ds_mtgt: 'Target / month', hp_ds_cact: 'Cumulative actual',
+    hp_ds_ctgt: 'Cumulative target', hp_ds_vact: 'Pond volume (actual)', hp_ds_proj: 'Pond volume (projected at target rate)',
+    hp_sum_daily: 'Month net pump-out: <b>{net} m³</b> • Avg <b>{avg} m³/d</b> • Water level change <b>{cm} cm</b> • Days with drop <b>{n}</b>',
+    hp_sum_month: 'Start <b>{s} m³</b> → End <b>{e} m³</b> • Min <b>{mn} m³</b> • Max <b>{mx} m³</b> • Readings <b>{n}</b>',
+    hp_sum_target: '{y}: target <b>{t} m³</b> • actual net reduction <b>{a} m³</b> ({p}%) • Current pond volume <b>{v} m³</b> • At {r} m³/d the pond is empty by <b>{m}</b>',
+    hp_sum_need: 'To empty by {e} you need <b>{n} m³/d</b> ({d} d/month)',
+    hp_a_rate: 'Retreat rate (m³/day)', hp_a_days: 'Days / month', hp_a_def: 'Base assumption (350 × 25 × 12)',
+    hp_tbl: 'Daily Records of Selected Month', hp_t_dcm: 'Water level change (cm)', hp_t_pump: 'Net pump-out (m³)',
+    hp_t_saved: 'Holding pond level saved for {d}.', hp_t_del: 'Holding pond record deleted for {d}.', hp_t_nodel: 'No record for {d}.',
+    hp_t_bad: 'Enter a space level between {min} and {max} cm.', hp_t_baddate: 'Choose a valid date.',
+    hp_c_del: 'Delete the holding pond record for {d}?', hp_t_exp: 'Holding pond CSV exported.',
+    hp_never: 'not within 10 years', hp_now: 'already empty',
+    hp_t_badcfg: 'Retreat rate must be 0 or more and days/month between 1 and 31.'
+  });
+  Object.assign(I18N.th, {
+    hp_sec: 'การติดตามบ่อ Holding Pond', hp_name: 'บ่อ Holding Pond', hp_csv: 'ส่งออก CSV บ่อ Holding',
+    hp_space: 'ระดับช่องว่าง (จากขอบบน)', hp_wlevel: 'ระดับน้ำ (cm)', hp_asof: 'วันที่อ่านค่า',
+    hp_spec: 'บ่อสี่เหลี่ยม • ปริมาตรเต็ม 410,000 m³ • ลึก ~8.0 m • พื้นที่ผิว ~55,300 m² • 553 m³ ต่อ cm',
+    hp_entry: 'กรอกระดับรายวัน', hp_entry_sub: 'Space = ระยะจากขอบบนบ่อถึงผิวน้ำ',
+    hp_date: 'วันที่', hp_in_space: 'ระดับช่องว่าง (cm)', hp_save: 'บันทึกระดับรายวัน', hp_del: 'ลบข้อมูลวันนี้',
+    hp_hint: 'ช่วงที่กรอกได้: {min} – {max} cm  ปริมาตร = 55,300 m² × (8.00 m − ช่องว่าง)',
+    hp_pv: 'ระดับน้ำ {lv} cm • ปริมาตร {vol} m³ • เต็ม {util}% • คงเหลือ {avail} m³',
+    hp_pv_chg: ' • เทียบวันก่อน: {chg} m³',
+    hp_k_target: 'เป้าบำบัดต่อปี', hp_k_ytd: 'ปริมาตรลดลงสุทธิ (ช่วงที่เลือก)', hp_k_avg30: 'สูบออกสุทธิเฉลี่ย (30 วัน)',
+    hp_k_empty: 'จำนวนเดือนจนบ่อว่าง (ตามเป้า)', hp_k_days: 'จำนวนวันที่มีข้อมูล',
+    hp_k_target_sub: '{r} m³/วัน × {d} วัน × 12', hp_k_ytd_sub: '{p}% ของเป้า {y}', hp_k_avg_sub: 'เป้า {r} m³/วัน',
+    hp_k_empty_sub: 'คาดว่าว่าง {m}', hp_k_days_sub: '{a} → {b}',
+    hp_c_daily: 'ปริมาตรสูบออกรายวัน (จากระดับที่ลดลง)', hp_c_month: 'ระดับบ่อย้อนหลังรายเดือน', hp_c_target: 'ปริมาตรสูบออกเทียบเป้าบำบัดรายปี',
+    hp_nodata: 'ไม่มีข้อมูลระดับในช่วงนี้',
+    hp_ds_out: 'สูบออกสุทธิ (ระดับลด)', hp_ds_in: 'น้ำเข้าสุทธิ (ระดับเพิ่ม)', hp_ds_rate: 'อัตราเป้าหมาย',
+    hp_ds_vol: 'ปริมาตร (m³)', hp_ds_space: 'ระดับช่องว่าง (cm)',
+    hp_ds_mact: 'ลดลงจริงสุทธิ / เดือน', hp_ds_mtgt: 'เป้า / เดือน', hp_ds_cact: 'สะสมจริง',
+    hp_ds_ctgt: 'สะสมตามเป้า', hp_ds_vact: 'ปริมาตรน้ำในบ่อ (จริง)', hp_ds_proj: 'ปริมาตรน้ำในบ่อ (คาดการณ์ตามอัตราเป้า)',
+    hp_sum_daily: 'สูบออกสุทธิทั้งเดือน: <b>{net} m³</b> • เฉลี่ย <b>{avg} m³/วัน</b> • ระดับน้ำเปลี่ยน <b>{cm} cm</b> • วันที่ระดับลด <b>{n}</b>',
+    hp_sum_month: 'ต้นเดือน <b>{s} m³</b> → ปลายเดือน <b>{e} m³</b> • ต่ำสุด <b>{mn} m³</b> • สูงสุด <b>{mx} m³</b> • จำนวนค่า <b>{n}</b>',
+    hp_sum_target: 'ช่วง {y}: เป้า <b>{t} m³</b> • ลดลงจริงสุทธิ <b>{a} m³</b> ({p}%) • ปริมาตรบ่อปัจจุบัน <b>{v} m³</b> • ที่อัตรา {r} m³/วัน บ่อจะว่างภายใน <b>{m}</b>',
+    hp_sum_need: 'ถ้าต้องการให้บ่อว่างภายใน {e} ต้องบำบัด <b>{n} m³/วัน</b> ({d} วัน/เดือน)',
+    hp_a_rate: 'อัตราบำบัด (m³/วัน)', hp_a_days: 'วัน / เดือน', hp_a_def: 'ค่าตั้งต้น (350 × 25 × 12)',
+    hp_tbl: 'ข้อมูลรายวันของเดือนที่เลือก', hp_t_dcm: 'ระดับน้ำเปลี่ยน (cm)', hp_t_pump: 'สูบออกสุทธิ (m³)',
+    hp_t_saved: 'บันทึกระดับบ่อ Holding วันที่ {d} แล้ว', hp_t_del: 'ลบข้อมูลบ่อ Holding วันที่ {d} แล้ว', hp_t_nodel: 'ไม่มีข้อมูลวันที่ {d}',
+    hp_t_bad: 'กรอกระดับช่องว่างระหว่าง {min} ถึง {max} cm', hp_t_baddate: 'เลือกวันที่ให้ถูกต้อง',
+    hp_c_del: 'ต้องการลบข้อมูลบ่อ Holding วันที่ {d} ใช่หรือไม่?', hp_t_exp: 'ส่งออก CSV บ่อ Holding แล้ว',
+    hp_never: 'เกิน 10 ปี', hp_now: 'ว่างแล้ว',
+    hp_t_badcfg: 'อัตราบำบัดต้องไม่ติดลบ และวัน/เดือนต้องอยู่ระหว่าง 1 ถึง 31'
+  });
+
   /** Current language: saved choice, otherwise browser language (Thai -> th, else en) */
   let LANG = (function () {
     const s = store.get(STORAGE.lang, null);
@@ -1277,12 +1497,17 @@ select.sel{
       await cloudWrite('PUT', '/state', { state });
       await cloudWrite('PUT', '/thresholds', { thresholds: th });
       if (records.length) await cloudWrite('POST', '/records', { records });
+      if (!d.holding) await cloudWrite('PUT', '/holding', { holding: hpData });
       setSync('on');
       return;
     }
 
     if (!first && !opt.force && d.updatedAt === CLOUD.seen) { if (!CLOUD.busy) setSync('on'); return; }
     CLOUD.seen = d.updatedAt || 0;
+
+    // Holding pond: existing KV without holding data yet -> upload this browser's edits once
+    if (d.holding) hpApplyCloud(d.holding);
+    else if (first && Object.keys(hpData.days).length) await cloudWrite('PUT', '/holding', { holding: hpData });
 
     state = parseState(d.state);
     th = parseThresholds(d.thresholds);
@@ -1800,6 +2025,474 @@ select.sel{
   }
 
   /* ==========================================================================
+     7b. HOLDING POND MONITOR
+     - Operator enters SPACE LEVEL (cm, distance from top of pond to water).
+     - Volume = Area x (Depth - Space), limited to 0 ... Design volume.
+     - Daily net pump-out = Volume(previous reading) - Volume(this reading),
+       divided by the number of days between readings.
+     - Kept OUT of the emergency-tank system totals (different purpose).
+     ========================================================================== */
+  const HP = { area: 55300, depth: 8.0, design: 410000 };          // 55,300 m2 = 553 m3 per cm (same as holding-level.xlsx)
+  HP.minCm = Math.max(0, HP.depth - HP.design / HP.area) * 100;    // space at full design volume (~58.6 cm)
+  HP.maxCm = HP.depth * 100;                                        // empty pond
+  const HP_DEFAULT_CFG = { rate: 350, days: 25 };
+  STORAGE.hp = 'escms_holding_v1';
+  STORAGE.hpView = 'escms_holding_view_v1';
+
+  /* Seed data from holding-level.xlsx: daily SPACE LEVEL (cm from top of pond to water),
+     one value per day from 23 Feb 2026 to 15 Nov 2026 (null = no reading).
+     05 Jun 2026 (71 cm, between 195 and 185) removed as an obvious entry error. */
+  const HP_SEED = { start: '2026-02-23', lv: [
+    296,297,297,298,298,299,300,302,303,303,303,304,304,305,305,306,298,296,296,296,296,296,296,296,296,298,298,300,300,302,302,302,302,303,null,null,
+    285,264,243,230,215,215,215,215,213,213,215,215,215,220,221,222,215,222,223,225,227,228,229,230,230,231,232,230,230,232,232,232,233,233,233,233,
+    234,235,235,236,237,237,237,238,240,240,240,240,238,233,233,233,234,234,235,235,236,236,236,234,210,196,193,193,194,195,null,185,185,187,187,183,
+    184,185,185,187,187,187,188,189,190,179,170,170,170,171,171,171,173,173,174,175,175,170,170,171,172,172,170,163,149,144,144,145,146,138,138,139,
+    139,139,140,142,143,142,142,142,142,135,132,125,122,122,122,120,120,120,118,118,118,118,118,116,116,116,116,116,120,120,120,110,106,105,101,101,
+    101,103,103,89,90,90,90,91,92,92,92,92,92,92,92,91,93,93,94,90,90,91,92,92,92,91,84,84,84,83,84,84,84,84,86,86,83,83,83,85,86,86,88,88,88,88,88,
+    88,88,88,88,88,88,88,88,90,90,90,90,92,92,92,94,94,94,94,94,94,96,96,96,96,96,96,96,97,97,97,101,101,100,103,104,104,105,108
+  ] };
+
+  /* Date helpers (local calendar days, 'YYYY-MM-DD') */
+  const isoDay = d => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+  const parseDay = s => { const p = s.split('-'); return new Date(+p[0], +p[1] - 1, +p[2], 12); };
+  const dayDiff = (a, b) => Math.round((parseDay(b) - parseDay(a)) / 864e5);
+  const addDays = (s, n) => { const d = parseDay(s); d.setDate(d.getDate() + n); return isoDay(d); };
+  const dmy = s => { const p = s.split('-'); return p[2] + '/' + p[1] + '/' + p[0]; };
+  const locale = () => (LANG === 'th' ? 'th-TH-u-ca-gregory' : 'en-GB');
+  const monthName = (y, m, long) => new Date(y, m - 1, 15).toLocaleDateString(locale(), { month: long ? 'long' : 'short', year: 'numeric' });
+
+  const HP_SEED_DAYS = {};
+  HP_SEED.lv.forEach((v, i) => { if (v !== null) HP_SEED_DAYS[addDays(HP_SEED.start, i)] = v; });
+
+  /** User edits (override / delete seed days) + assumption. Shared via cloud. */
+  let hpData = (function () {
+    const s = store.get(STORAGE.hp, null);
+    return { days: (s && s.days && typeof s.days === 'object') ? s.days : {}, cfg: hpCleanCfg(s && s.cfg) };
+  })();
+  const hpView = Object.assign({ month: '', year: 'all' }, store.get(STORAGE.hpView, {}) || {});
+  const hpCharts = {};
+
+  function hpCleanCfg(c) {
+    const rate = c && isFinite(c.rate) && +c.rate >= 0 ? +c.rate : HP_DEFAULT_CFG.rate;
+    const days = c && isFinite(c.days) && +c.days >= 1 && +c.days <= 31 ? +c.days : HP_DEFAULT_CFG.days;
+    return { rate, days };
+  }
+  const hpVol = space => clamp(HP.area * (HP.depth - space / 100), 0, HP.design);
+  const hpMonthlyTarget = () => hpData.cfg.rate * hpData.cfg.days;
+  const hpAnnualTarget = () => hpMonthlyTarget() * 12;
+  const hpDailyEq = () => hpAnnualTarget() / 365.25;                  // calendar-day equivalent of the target
+
+  /** Merged, sorted daily series with derived values */
+  function hpSeries() {
+    const m = Object.assign({}, HP_SEED_DAYS);
+    Object.keys(hpData.days).forEach(k => {
+      const v = hpData.days[k];
+      if (v === null || v === undefined || !isFinite(v)) delete m[k]; else m[k] = +v;
+    });
+    const out = Object.keys(m).sort().map(d => {
+      const space = m[d], vol = hpVol(space);
+      return { d, space, lv: HP.maxCm - space, vol, util: vol / HP.design * 100 };
+    });
+    for (let i = 1; i < out.length; i++) {
+      const p = out[i - 1], c = out[i];
+      c.gap = dayDiff(p.d, c.d);
+      c.net = p.vol - c.vol;                       // + = volume went down (pumped out)
+      c.perDay = c.net / c.gap;
+      c.dcm = c.lv - p.lv;                         // water level change (cm)
+    }
+    return out;
+  }
+
+  function hpValidate(raw) {
+    if (!isFinite(raw)) return null;
+    if (raw < HP.minCm - 0.01 || raw > HP.maxCm + 0.01) return null;
+    return clamp(raw, HP.minCm, HP.maxCm);
+  }
+
+  /* ---- UI ---- */
+  function hpFillSelectors(series) {
+    // Months: first data month ... max(last data month, current month)
+    const ms = $('#hpMonthSel'), ys = $('#hpYearSel');
+    const first = series.length ? series[0].d.slice(0, 7) : isoDay(new Date()).slice(0, 7);
+    const lastData = series.length ? series[series.length - 1].d.slice(0, 7) : first;
+    const nowM = isoDay(new Date()).slice(0, 7);
+    const last = lastData > nowM ? lastData : nowM;
+    const months = [];
+    let y = +first.slice(0, 4), mo = +first.slice(5, 7);
+    while ((y + '-' + pad(mo)) <= last) { months.push(y + '-' + pad(mo)); mo++; if (mo > 12) { mo = 1; y++; } }
+    if (!hpView.month || months.indexOf(hpView.month) < 0) hpView.month = lastData;
+    ms.innerHTML = months.slice().reverse().map(k =>
+      '<option value="' + k + '"' + (k === hpView.month ? ' selected' : '') + '>' + monthName(+k.slice(0, 4), +k.slice(5, 7), true) + '</option>').join('');
+
+    const r = hpRange(series);
+    const opts = ['all']; for (let k = r.y0; k <= r.y1; k++) opts.push(String(k));
+    if (opts.indexOf(String(hpView.year)) < 0) hpView.year = 'all';
+    ys.innerHTML = opts.map(k => '<option value="' + k + '"' + (k === String(hpView.year) ? ' selected' : '') + '>' +
+      (k === 'all' ? r.y0 + '–' + r.y1 : k) + '</option>').join('');
+  }
+
+  /** Continuous timeline: first data year ... max(2028, this year + 2) */
+  function hpRange(series) {
+    const y0 = Math.min(series.length ? +series[0].d.slice(0, 4) : new Date().getFullYear(), new Date().getFullYear());
+    return { y0, y1: Math.max(2028, new Date().getFullYear() + 2) };
+  }
+  /** Selected period as { label, from: 'YYYY-MM', to: 'YYYY-MM', months } */
+  function hpPeriod(series) {
+    const r = hpRange(series);
+    if (String(hpView.year) === 'all') return { label: r.y0 + '–' + r.y1, from: r.y0 + '-01', to: r.y1 + '-12', months: (r.y1 - r.y0 + 1) * 12 };
+    const y = +hpView.year;
+    return { label: String(y), from: y + '-01', to: y + '-12', months: 12 };
+  }
+
+  function hpRenderPond(series) {
+    const last = series[series.length - 1];
+    const block = $('#block-hp');
+    const util = last ? last.util : 0, st = statusOf(util);
+    block.classList.remove('st-normal', 'st-warning', 'st-critical');
+    block.classList.add('st-' + st);
+    $('#badge-hp').textContent = ICON[st] + ' ' + stLabel(st);
+    const w = $('#water-hp'); w.style.height = util + '%'; w.style.opacity = util < 0.3 ? '0' : '';
+    const tw = $('#thw-hp'), tc = $('#thc-hp');
+    tw.style.bottom = th.warn + '%'; tw.firstElementChild.textContent = tr('tr_warn', { n: th.warn });
+    tc.style.bottom = th.crit + '%'; tc.firstElementChild.textContent = tr('tr_crit', { n: th.crit });
+    animateNumber($('#pct-hp'), util, 1, '%', 900);
+    $('#av-hp').textContent = last ? fmt(HP.design - last.vol) + ' m³' : '--';
+    $('#rm-hp').textContent = last ? tr('ro_remain') + ' ' + fmt(100 - util, 1) + ' %' : '';
+    $('#fs-hp').textContent = last ? fmt(last.space, 1) + ' cm' : '--';
+    $('#wd-hp').textContent = last ? fmt(last.lv, 1) + ' cm' : '--';
+    $('#vol-hp').textContent = last ? fmt(last.vol) + ' m³' : '--';
+    $('#asof-hp').textContent = last ? dmy(last.d) : '--';
+  }
+
+  function hpEmptyText(lastVol, lastDay) {
+    const de = hpDailyEq();
+    if (lastVol <= 0) return { months: 0, label: tr('hp_now') };
+    if (de <= 0) return { months: Infinity, label: tr('hp_never') };
+    const days = lastVol / de;
+    if (days > 3653) return { months: Infinity, label: tr('hp_never') };
+    const d = parseDay(lastDay); d.setDate(d.getDate() + Math.ceil(days));
+    return { months: lastVol / hpMonthlyTarget(), label: monthName(d.getFullYear(), d.getMonth() + 1, true) };
+  }
+
+  function hpRenderKPIs(series) {
+    const cfg = hpData.cfg, per = hpPeriod(series);
+    const last = series[series.length - 1];
+    $('#hpKTarget').textContent = fmt(hpAnnualTarget()) + ' m³';
+    $('#hpKTargetSub').textContent = tr('hp_k_target_sub', { r: fmt(cfg.rate), d: cfg.days });
+    $('#hpAnnual').textContent = fmt(hpAnnualTarget()) + ' m³/yr';
+    const ytd = series.filter(x => x.net !== undefined && x.d.slice(0, 7) >= per.from && x.d.slice(0, 7) <= per.to).reduce((s, x) => s + x.net, 0);
+    const perTarget = hpTimeline(series).filter(x => x.ym >= per.from && x.ym <= per.to).reduce((s, x) => s + (x.tgt || 0), 0);
+    $('#hpKYtd').textContent = fmt(ytd) + ' m³';
+    $('#hpKYtdSub').textContent = tr('hp_k_ytd_sub', { p: perTarget ? fmt(ytd / perTarget * 100, 1) : '--', y: per.label });
+    if (last) {
+      const from = addDays(last.d, -30);
+      const win = series.filter(x => x.net !== undefined && x.d > from);
+      const span = win.reduce((s, x) => s + x.gap, 0);
+      const avg = span ? win.reduce((s, x) => s + x.net, 0) / span : 0;
+      $('#hpKAvg').textContent = fmt(avg) + ' m³/d';
+      $('#hpKAvgSub').textContent = tr('hp_k_avg_sub', { r: fmt(cfg.rate) });
+      $('#hpKAvg').style.color = avg >= cfg.rate ? 'var(--good)' : 'var(--warn)';
+      const e = hpEmptyText(last.vol, last.d);
+      $('#hpKEmpty').textContent = isFinite(e.months) ? fmt(e.months, 1) : '∞';
+      $('#hpKEmptySub').textContent = tr('hp_k_empty_sub', { m: e.label });
+      $('#hpKDays').textContent = fmt(series.length);
+      $('#hpKDaysSub').textContent = tr('hp_k_days_sub', { a: dmy(series[0].d), b: dmy(last.d) });
+    } else {
+      ['#hpKAvg', '#hpKEmpty', '#hpKDays'].forEach(s => { $(s).textContent = '--'; });
+    }
+  }
+
+  function hpChartBase(type, extra) {
+    return new Chart(extra.canvas, {
+      type,
+      data: { labels: [], datasets: [] },
+      options: Object.assign({
+        responsive: true, maintainAspectRatio: false, animation: false,
+        interaction: { mode: 'index', intersect: false },
+        plugins: { legend: { labels: { boxWidth: 12, font: { size: 11 } } }, tooltip: {} },
+        scales: {}
+      }, extra.options || {})
+    });
+  }
+
+  function hpCreateCharts() {
+    if (typeof Chart === 'undefined') return;
+    hpCharts.daily = hpChartBase('bar', { canvas: $('#hpChartDaily'), options: {
+      scales: { x: { stacked: true, grid: {}, ticks: {} }, y: { stacked: true, title: { display: true, text: 'm³/d' }, grid: {}, ticks: {} } } } });
+    hpCharts.month = hpChartBase('line', { canvas: $('#hpChartMonth'), options: {
+      scales: { x: { grid: {}, ticks: {} },
+        y: { position: 'left', title: { display: true, text: 'm³' }, grid: {}, ticks: {} },
+        y1: { position: 'right', reverse: true, title: { display: true, text: 'space cm' }, grid: { drawOnChartArea: false }, ticks: {} } } } });
+    hpCharts.target = hpChartBase('bar', { canvas: $('#hpChartTarget'), options: {
+      scales: { x: { grid: {}, ticks: {} },
+        y: { position: 'left', beginAtZero: true, title: { display: true, text: 'm³ (pumped)' }, grid: {}, ticks: {} },
+        y1: { position: 'right', beginAtZero: true, title: { display: true, text: 'm³ (pond volume)' }, grid: { drawOnChartArea: false }, ticks: {} } } } });
+  }
+
+  function hpThemeChart(ch) {
+    const muted = cssVar('--muted'), grid = cssVar('--track');
+    Object.values(ch.options.scales).forEach(s => {
+      s.ticks = Object.assign(s.ticks || {}, { color: muted });
+      if (s.grid) s.grid.color = grid;
+      if (s.title) s.title.color = muted;
+    });
+    ch.options.plugins.legend.labels.color = muted;
+  }
+
+  function hpRenderDaily(series) {
+    const ym = hpView.month, y = +ym.slice(0, 4), m = +ym.slice(5, 7);
+    const nDays = new Date(y, m, 0).getDate();
+    const byDay = {}; series.forEach(x => { if (x.d.slice(0, 7) === ym) byDay[+x.d.slice(8, 10)] = x; });
+    const labels = [], out = [], inn = [], rate = [];
+    for (let d = 1; d <= nDays; d++) {
+      labels.push(d);
+      const x = byDay[d];
+      const v = x && x.perDay !== undefined ? x.perDay : null;
+      out.push(v !== null && v > 0 ? +v.toFixed(0) : (v === null ? null : 0));
+      inn.push(v !== null && v < 0 ? +v.toFixed(0) : (v === null ? null : 0));
+      rate.push(hpData.cfg.rate);
+    }
+    const inMonth = series.filter(x => x.d.slice(0, 7) === ym && x.net !== undefined);
+    const has = inMonth.length > 0;
+    $('#hpEmptyDaily').classList.toggle('hidden', has);
+    const net = inMonth.reduce((s, x) => s + x.net, 0), span = inMonth.reduce((s, x) => s + x.gap, 0);
+    const cm = inMonth.reduce((s, x) => s + x.dcm, 0);
+    $('#hpSumDaily').innerHTML = has ? tr('hp_sum_daily', {
+      net: fmt(net), avg: fmt(span ? net / span : 0), cm: (cm > 0 ? '+' : '') + fmt(cm, 0), n: inMonth.filter(x => x.net > 0).length }) : '';
+    const ch = hpCharts.daily; if (!ch) return;
+    ch.data.labels = labels;
+    ch.data.datasets = [
+      { label: tr('hp_ds_out'), data: out, backgroundColor: COLORS.normal + 'cc', borderColor: COLORS.normal, borderWidth: 1, stack: 's' },
+      { label: tr('hp_ds_in'), data: inn, backgroundColor: COLORS.warning + 'cc', borderColor: COLORS.warning, borderWidth: 1, stack: 's' },
+      { type: 'line', label: tr('hp_ds_rate') + ' ' + fmt(hpData.cfg.rate) + ' m³/d', data: rate, borderColor: '#00c6ff', borderDash: [6, 4], borderWidth: 2, pointRadius: 0 }
+    ];
+    ch.options.plugins.tooltip.callbacks = {
+      title: items => dmy(ym + '-' + pad(items[0].label)),
+      afterTitle: items => { const x = byDay[+items[0].label]; return x && x.dcm !== undefined ? tr('hp_t_dcm') + ': ' + (x.dcm > 0 ? '+' : '') + fmt(x.dcm, 1) + (x.gap > 1 ? ' (' + x.gap + ' d)' : '') : ''; },
+      label: c => (c.raw === null || (c.raw === 0 && c.datasetIndex < 2)) ? null : c.dataset.label + ': ' + fmt(c.raw) + ' m³'
+    };
+    ch.options.plugins.tooltip.filter = c => !(c.datasetIndex < 2 && (c.raw === 0 || c.raw === null));
+    hpThemeChart(ch); ch.update('none');
+  }
+
+  function hpRenderMonth(series) {
+    const ym = hpView.month;
+    const rows = series.filter(x => x.d.slice(0, 7) === ym);
+    $('#hpEmptyMonth').classList.toggle('hidden', rows.length > 0);
+    $('#hpMonthLbl').textContent = monthName(+ym.slice(0, 4), +ym.slice(5, 7), true);
+    if (rows.length) {
+      const vols = rows.map(x => x.vol);
+      $('#hpSumMonth').innerHTML = tr('hp_sum_month', { s: fmt(rows[0].vol), e: fmt(rows[rows.length - 1].vol),
+        mn: fmt(Math.min.apply(null, vols)), mx: fmt(Math.max.apply(null, vols)), n: rows.length });
+    } else $('#hpSumMonth').innerHTML = '';
+
+    // daily table
+    $('#hpTblBody').innerHTML = rows.length ? rows.slice().reverse().map(x =>
+      '<tr><td>' + dmy(x.d) + '</td><td>' + fmt(x.space, 1) + '</td><td>' + fmt(x.lv, 1) + '</td><td>' + fmt(x.vol) + '</td>' +
+      '<td>' + (x.dcm === undefined ? '–' : (x.dcm > 0 ? '+' : '') + fmt(x.dcm, 1)) + '</td>' +
+      '<td class="' + (x.net > 0 ? 'td-pos' : x.net < 0 ? 'td-neg' : '') + '">' + (x.net === undefined ? '–' : fmt(x.net) + (x.gap > 1 ? ' (' + x.gap + ' d)' : '')) + '</td></tr>').join('')
+      : '<tr><td colspan="6" style="text-align:center;color:var(--muted)">' + tr('hp_nodata') + '</td></tr>';
+
+    const ch = hpCharts.month; if (!ch) return;
+    ch.data.labels = rows.map(x => x.d.slice(8, 10) + '/' + x.d.slice(5, 7));
+    ch.data.datasets = [
+      { label: tr('hp_ds_vol'), data: rows.map(x => Math.round(x.vol)), yAxisID: 'y', borderColor: '#00c6ff', backgroundColor: '#00c6ff33', fill: true, borderWidth: 2, pointRadius: 2.5, tension: 0.2 },
+      { label: tr('hp_ds_space'), data: rows.map(x => x.space), yAxisID: 'y1', borderColor: '#a78bfa', borderWidth: 2, pointRadius: 0, borderDash: [4, 3], tension: 0.2 }
+    ];
+    ch.options.plugins.tooltip.callbacks = { label: c => c.dataset.label + ': ' + fmt(c.raw, c.datasetIndex ? 1 : 0) };
+    hpThemeChart(ch); ch.update('none');
+  }
+
+  /** One continuous monthly timeline over all years (2026 -> 2028 ...).
+      Cumulative values and pond volume run on without restarting each year;
+      choosing a single year just shows that slice of the same timeline. */
+  function hpTimeline(series) {
+    const r = hpRange(series), mt = hpMonthlyTarget();
+    const last = series[series.length - 1];
+    const lastYM = last ? last.d.slice(0, 7) : '';
+    const firstYM = series.length > 1 ? series[1].d.slice(0, 7) : '9999-99';   // first month with a daily change
+    const rows = [];
+    let ca = 0, ct = 0;
+    for (let y = r.y0; y <= r.y1; y++) {
+      for (let m = 1; m <= 12; m++) {
+        const ym = y + '-' + pad(m);
+        const inM = series.filter(x => x.net !== undefined && x.d.slice(0, 7) === ym);
+        const a = inM.reduce((s, x) => s + x.net, 0);
+        const started = ym >= firstYM;
+        if (started && ym <= lastYM) ca += a;
+        if (started) ct += mt;
+        const endDay = ym + '-' + pad(new Date(y, m, 0).getDate());
+        let vAct = null, vProj = null;
+        if (last && endDay <= last.d) {
+          const known = series.filter(x => x.d <= endDay);
+          if (known.length) vAct = Math.round(known[known.length - 1].vol);
+        } else if (last && ym === lastYM) {
+          vAct = Math.round(last.vol);                      // current (partial) month = latest reading
+        }
+        if (last && ym >= lastYM) {
+          vProj = ym === lastYM ? Math.round(last.vol)      // joins the actual line
+                : Math.round(Math.max(0, last.vol - hpDailyEq() * dayDiff(last.d, endDay)));
+        }
+        rows.push({
+          ym, label: monthName(y, m, false),
+          act: inM.length ? Math.round(a) : null,
+          tgt: started ? Math.round(mt) : null,
+          cAct: started && ym <= lastYM ? Math.round(ca) : null,
+          cTgt: started ? Math.round(ct) : null,
+          vAct, vProj
+        });
+      }
+    }
+    return rows;
+  }
+
+  function hpRenderTarget(series) {
+    const per = hpPeriod(series);
+    const last = series[series.length - 1];
+    const rows = hpTimeline(series).filter(x => x.ym >= per.from && x.ym <= per.to);
+    const total = series.filter(x => x.net !== undefined && x.d.slice(0, 7) >= per.from && x.d.slice(0, 7) <= per.to).reduce((s, x) => s + x.net, 0);
+    const perTarget = rows.reduce((s, x) => s + (x.tgt || 0), 0);
+    const e = last ? hpEmptyText(last.vol, last.d) : { label: '--' };
+    $('#hpSumTarget').innerHTML = tr('hp_sum_target', { y: per.label, t: fmt(perTarget), a: fmt(total),
+      p: perTarget ? fmt(total / perTarget * 100, 1) : '--', v: last ? fmt(last.vol) : '--', r: fmt(hpData.cfg.rate), m: e.label });
+    // Rate needed (working days, same days/month assumption) to empty the pond by the end of the period
+    const endDay = per.to + '-31';
+    if (last && endDay > last.d && last.vol > 0) {
+      const monthsLeft = dayDiff(last.d, endDay) / 30.4375;
+      $('#hpSumTarget').innerHTML += ' • ' + tr('hp_sum_need', { e: monthName(+per.to.slice(0, 4), 12, true),
+        n: fmt(last.vol / (monthsLeft * hpData.cfg.days)), d: hpData.cfg.days });
+    }
+
+    const ch = hpCharts.target; if (!ch) return;
+    const many = rows.length > 12;
+    ch.data.labels = rows.map(x => x.label);
+    ch.data.datasets = [
+      { label: tr('hp_ds_mact'), data: rows.map(x => x.act), backgroundColor: COLORS.normal + 'cc', borderColor: COLORS.normal, borderWidth: 1, yAxisID: 'y', order: 3 },
+      { label: tr('hp_ds_mtgt'), data: rows.map(x => x.tgt), backgroundColor: '#00c6ff44', borderColor: '#00c6ff', borderWidth: 1, yAxisID: 'y', order: 4 },
+      { type: 'line', label: tr('hp_ds_cact'), data: rows.map(x => x.cAct), borderColor: COLORS.normal, borderWidth: 3, pointRadius: many ? 1.5 : 3, yAxisID: 'y', order: 1 },
+      { type: 'line', label: tr('hp_ds_ctgt'), data: rows.map(x => x.cTgt), borderColor: '#00c6ff', borderDash: [6, 4], borderWidth: 2, pointRadius: 0, yAxisID: 'y', order: 2 },
+      { type: 'line', label: tr('hp_ds_vact'), data: rows.map(x => x.vAct), borderColor: '#a78bfa', backgroundColor: '#a78bfa22', fill: true, borderWidth: 2.5, pointRadius: many ? 1.5 : 2.5, yAxisID: 'y1', order: 0, tension: 0.15 },
+      { type: 'line', label: tr('hp_ds_proj'), data: rows.map(x => x.vProj), borderColor: '#a78bfa', borderDash: [5, 4], borderWidth: 2, pointRadius: 0, yAxisID: 'y1', order: 0, tension: 0.15 }
+    ];
+    ch.options.scales.x.ticks.autoSkip = true;
+    ch.options.scales.x.ticks.maxRotation = many ? 60 : 0;
+    ch.options.plugins.tooltip.callbacks = { label: c => c.raw === null ? null : c.dataset.label + ': ' + fmt(c.raw) + ' m³' };
+    hpThemeChart(ch); ch.update('none');
+  }
+
+  function hpPreview() {
+    const raw = parseFloat(String($('#hpSpace').value).replace(',', '.'));
+    const el = $('#hpPreview');
+    const v = hpValidate(raw);
+    if (v === null) { el.textContent = isFinite(raw) ? tr('hp_t_bad', { min: fmt(HP.minCm, 1), max: fmt(HP.maxCm, 0) }) : ''; el.className = 'preview pv-warning'; return; }
+    const vol = hpVol(v), util = vol / HP.design * 100;
+    let txt = tr('hp_pv', { lv: fmt(HP.maxCm - v, 1), vol: fmt(vol), util: fmt(util, 1), avail: fmt(HP.design - vol) });
+    const d = $('#hpDate').value;
+    if (d) {
+      const prev = hpSeries().filter(x => x.d < d).pop();
+      if (prev) { const chg = vol - prev.vol; txt += tr('hp_pv_chg', { chg: (chg > 0 ? '+' : '') + fmt(chg) }); }
+    }
+    el.textContent = txt; el.className = 'preview pv-' + statusOf(util);
+  }
+
+  function hpFillEntry() {
+    const d = $('#hpDate').value;
+    const x = hpSeries().find(r => r.d === d);
+    $('#hpSpace').value = x ? +x.space.toFixed(1) : '';
+    hpPreview();
+  }
+
+  function hpRender() {
+    const series = hpSeries();
+    hpFillSelectors(series);
+    $('#hpRate').value = hpData.cfg.rate; $('#hpDpm').value = hpData.cfg.days;
+    $('#hpHint').textContent = tr('hp_hint', { min: fmt(HP.minCm, 1), max: fmt(HP.maxCm, 0) });
+    hpRenderPond(series);
+    hpRenderKPIs(series);
+    hpRenderDaily(series);
+    hpRenderMonth(series);
+    hpRenderTarget(series);
+  }
+
+  function hpPersist() { store.set(STORAGE.hp, hpData); }
+
+  function hpSaveDay() {
+    const d = $('#hpDate').value;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) { toast(tr('hp_t_baddate'), 'err'); return; }
+    const v = hpValidate(parseFloat(String($('#hpSpace').value).replace(',', '.')));
+    if (v === null) { toast(tr('hp_t_bad', { min: fmt(HP.minCm, 1), max: fmt(HP.maxCm, 0) }), 'err'); return; }
+    hpData.days[d] = +v.toFixed(1);
+    hpPersist();
+    cloudWrite('PUT', '/holding/day', { d, space: hpData.days[d] });
+    hpView.month = d.slice(0, 7); store.set(STORAGE.hpView, hpView);
+    hpRender(); hpPreview();
+    toast(tr('hp_t_saved', { d: dmy(d) }), 'ok');
+  }
+
+  function hpDeleteDay() {
+    const d = $('#hpDate').value;
+    if (!d) { toast(tr('hp_t_baddate'), 'err'); return; }
+    if (!hpSeries().some(x => x.d === d)) { toast(tr('hp_t_nodel', { d: dmy(d) }), 'info'); return; }
+    if (!confirm(tr('hp_c_del', { d: dmy(d) }))) return;
+    hpData.days[d] = null;
+    hpPersist();
+    cloudWrite('PUT', '/holding/day', { d, space: null });
+    hpRender(); hpFillEntry();
+    toast(tr('hp_t_del', { d: dmy(d) }), 'ok');
+  }
+
+  function hpSetCfg(cfg) {
+    hpData.cfg = hpCleanCfg(cfg);
+    hpPersist();
+    cloudWrite('PUT', '/holding/cfg', { cfg: hpData.cfg });
+    hpRender();
+  }
+
+  function hpExportCSV() {
+    const s = hpSeries();
+    const head = [tr('hp_date'), tr('hp_in_space'), tr('hp_wlevel'), tr('ro_vol') + ' (m3)', tr('hp_t_dcm'), tr('hp_t_pump'), 'Days since previous'];
+    const L = [head.map(csvCell).join(',')];
+    s.forEach(x => L.push([dmy(x.d), x.space.toFixed(1), x.lv.toFixed(1), x.vol.toFixed(0),
+      x.dcm === undefined ? '' : x.dcm.toFixed(1), x.net === undefined ? '' : x.net.toFixed(0), x.gap || ''].map(csvCell).join(',')));
+    downloadText('Holding_Pond_' + stamp(new Date()) + '.csv', L.join('\r\n'));
+    toast(tr('hp_t_exp'), 'ok');
+  }
+
+  /** Called by cloudLoad with the shared holding-pond object */
+  function hpApplyCloud(h) {
+    if (!h || typeof h !== 'object') return;
+    hpData = { days: (h.days && typeof h.days === 'object') ? h.days : {}, cfg: hpCleanCfg(h.cfg) };
+    hpPersist();
+    hpRender(); hpFillEntry();
+  }
+
+  function hpWire() {
+    $('#hpDate').addEventListener('change', hpFillEntry);
+    $('#hpSpace').addEventListener('input', hpPreview);
+    $('#hpSpace').addEventListener('keydown', e => { if (e.key === 'Enter') hpSaveDay(); });
+    $('#hpBtnSave').addEventListener('click', hpSaveDay);
+    $('#hpBtnDel').addEventListener('click', hpDeleteDay);
+    $('#hpBtnCSV').addEventListener('click', hpExportCSV);
+    $('#hpMonthSel').addEventListener('change', e => { hpView.month = e.target.value; store.set(STORAGE.hpView, hpView); hpRender(); });
+    $('#hpYearSel').addEventListener('change', e => { hpView.year = e.target.value; store.set(STORAGE.hpView, hpView); hpRender(); });
+    const onCfg = () => {
+      const rate = parseFloat($('#hpRate').value), days = parseFloat($('#hpDpm').value);
+      if (!(rate >= 0) || !(days >= 1 && days <= 31)) { toast(tr('hp_t_badcfg'), 'err'); hpRender(); return; }
+      hpSetCfg({ rate, days });
+    };
+    $('#hpRate').addEventListener('change', onCfg);
+    $('#hpDpm').addEventListener('change', onCfg);
+    $('#hpBtnAssumpDef').addEventListener('click', () => hpSetCfg(HP_DEFAULT_CFG));
+  }
+
+  function hpInit() {
+    hpCreateCharts();
+    hpWire();
+    $('#hpDate').value = isoDay(new Date());
+    hpRender(); hpFillEntry();
+  }
+
+  /* ==========================================================================
      8. EXPORT / PRINT / FULLSCREEN / THEME / LANGUAGE
      ========================================================================== */
   async function exportElementPNG(target, filename) {
@@ -1832,7 +2525,7 @@ select.sel{
     updateThemeBtn();
     document.querySelector('meta[name="theme-color"]').setAttribute('content', theme === 'dark' ? '#081b29' : '#eaf1f8');
     if (persist !== false) store.set(STORAGE.theme, theme);
-    paintGauges(); refreshCharts();
+    paintGauges(); refreshCharts(); hpRender();
   }
 
   function toggleFullscreen() {
@@ -1874,6 +2567,7 @@ select.sel{
     });
     buildBasis(); updateThemeBtn(); syncFSButton(); previewAll();
     setSync($('#btnSync').dataset.sync || 'off');
+    hpRender(); hpPreview();
     if (calc.t1) { renderAll(); renderHistory(); refreshCharts(); }
     tickClock();
   }
@@ -1949,12 +2643,12 @@ select.sel{
       }
       th = { med, warn, crit }; store.set(STORAGE.thresholds, th);
       cloudWrite('PUT', '/thresholds', { thresholds: th });
-      renderAll(); previewAll(); refreshCharts(); toast(tr('t_th_ok'), 'ok');
+      renderAll(); previewAll(); refreshCharts(); hpRender(); toast(tr('t_th_ok'), 'ok');
     });
     $('#btnThDefault').addEventListener('click', () => {
       th = Object.assign({}, DEFAULT_TH); store.set(STORAGE.thresholds, th);
       cloudWrite('PUT', '/thresholds', { thresholds: th });
-      fillThresholdInputs(); renderAll(); previewAll(); refreshCharts(); toast(tr('t_th_def'), 'ok');
+      fillThresholdInputs(); renderAll(); previewAll(); refreshCharts(); hpRender(); toast(tr('t_th_def'), 'ok');
     });
 
     // Print: force light theme so the A4 report is ink friendly
@@ -1988,6 +2682,7 @@ select.sel{
 
     wireEvents();
     createCharts();
+    hpInit();
     setTheme(document.documentElement.getAttribute('data-theme'), false);
 
     updateDashboard({ silent: true, noSave: true });
